@@ -7,3 +7,5 @@ statsmodels
 matplotlib
 kaggle
 xgboost
+boto3
+gsutil
