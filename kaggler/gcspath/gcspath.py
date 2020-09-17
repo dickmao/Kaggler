@@ -11,13 +11,12 @@ import botocore
 import io
 import math
 import psutil
-import path
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from urllib.request import urlopen
 from time import sleep
 
-def instanceid():
+def get_instanceid():
     try:
         return urlopen('http://169.254.169.254/latest/meta-data/instance-id', timeout=1) \
             .read().decode()
@@ -25,9 +24,17 @@ def instanceid():
         pass
     return None
 
-def az():
+def get_az():
     try:
         return urlopen('http://169.254.169.254/latest/meta-data/placement/availability-zone', timeout=1) \
+            .read().decode()
+    except:
+        pass
+    return None
+
+def get_region():
+    try:
+        return urlopen('http://169.254.169.254/latest/meta-data/placement/region', timeout=1) \
             .read().decode()
     except:
         pass
@@ -72,16 +79,17 @@ def download(dir, competition=None, dataset=None, recreate=None):
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
     volume = None
-    instance_id = instanceid()
+    instance_id = get_instanceid()
     if not instance_id:
         download(dir, competition=competition, dataset=dataset, recreate=recreate)
     else:
-        ec2 = boto3.resource('ec2')
+        region = get_region()
+        ec2 = boto3.resource('ec2', region_name=region)
         label = competition or dataset
         volumes = ec2.volumes.filter(Filters=[{'Name': 'tag:name',
                                                'Values': [label]}])
         volume = next(iter(volumes), None)
-        client = boto3.client('ec2')
+        client = boto3.client('ec2', region_name=region)
         if volume and recreate:
             for i, d in [(a.InstanceId, a.Device) for a in volume.attachments]:
                 volume.detach_from_instance(Device=d, InstanceId=i, Force=True)
@@ -92,10 +100,6 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 error("VolumeId {}, {}".format(volume.id, str(e)))
             volume = None
         if not volume:
-            region = boto3.session.Session().region_name
-            if not region:
-                error("Need to set aws default region")
-                return None
             url = gcspath(competition=competition, dataset=dataset)
             with Restorer(['gsutil', 'du', '-s', url]):
                 stdout = io.StringIO()
@@ -111,7 +115,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 else:
                     sz = math.ceil(float(sz)/(2 << 29))
             volume = ec2.create_volume(
-                AvailabilityZone=az(),
+                AvailabilityZone=get_az(),
                 Size=sz,
                 TagSpecifications=[
                     {
@@ -131,17 +135,18 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 error("VolumeId {}, {}".format(volume.id, str(e)))
 
             attached = False
+            device = '/dev/xvdh'
             for _ in range(5):
                 response = client.attach_volume(
-                    Device='/dev/sdf',
+                    Device=device,
                     InstanceId=instance_id,
                     VolumeId=volume.id,
                 )
                 attached = (response['State'] == 'attached')
                 if attached:
-                    fstype = next(iter([part.fstype for part in psutil.disk_partitions() if path.startswith(part.mountpoint)]))
+                    fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
                     if not fstype:
-                        os.system("sudo mkfs -t xfs /dev/xvdf")
+                        os.system("sudo mkfs -t xfs {}".format(device))
                     break
                 else:
                     sleep(3)

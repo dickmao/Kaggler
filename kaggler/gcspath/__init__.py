@@ -1,3 +1,3 @@
-from .gcspath import gcspath, fusermount, download
+from .gcspath import gcspath, fusermount, ebs_volume
 
-__all__ = ['gcspath', 'fusermount', 'download']
+__all__ = ['gcspath', 'fusermount', 'ebs_volume']
