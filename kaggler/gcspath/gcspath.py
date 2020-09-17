@@ -133,31 +133,38 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 client.get_waiter('volume_available').wait(VolumeIds=[volume.id])
             except botocore.exceptions.WaiterError as e:
                 error("VolumeId {}, {}".format(volume.id, str(e)))
+                return volume
 
-            attached = False
-            device = '/dev/xvdf'
+        attached = False
+        device = '/dev/xvdf'
+        try:
             client.attach_volume(
                 Device=device,
                 InstanceId=instance_id,
                 VolumeId=volume.id,
             )
-            for _ in range(5):
-                response = client.describe_volumes(
-                    VolumeIds=[volume.id],
-                )
-                response_volume = next(iter(response['Volumes']), None)
-                if response_volume:
-                    attachment = next(iter(response_volume['Attachments']), None)
-                    attached = attachment and attachment['State'] == 'attached'
-                    if attached:
-                        fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
-                        if not fstype:
-                            os.system("sudo mkfs -t ext4 {}".format(device))
-                        os.system("sudo mount {} {}".format(device, dir))
-                        break
-                sleep(3)
-            if not attached:
-                error("Cannot attach {} to {}".format(volume.id, instance_id))
+        except botocore.ClientError as e:
+            # might just be already attached, so don't return
+            error("VolumeId {}, {}".format(volume.id, str(e)))
+
+        for _ in range(5):
+            response = client.describe_volumes(
+                VolumeIds=[volume.id],
+            )
+            response_volume = next(iter(response['Volumes']), None)
+            if response_volume:
+                attachment = next(iter(response_volume['Attachments']), None)
+                attached = attachment and attachment['State'] == 'attached'
+                if attached:
+                    fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
+                    if not fstype:
+                        os.system("sudo mkfs -t ext4 {}".format(device))
+                    os.system("sudo mount {} {}".format(device, dir))
+                    break
+            sleep(3)
+        if not attached:
+            error("Cannot attach {} to {}".format(volume.id, instance_id))
+            return None
     return volume
 
 def fusermount(mountpoint, **kwargs):
