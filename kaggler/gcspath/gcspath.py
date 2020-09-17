@@ -59,7 +59,6 @@ def error(message):
 
 def download(dir, competition=None, dataset=None, recreate=None):
     output = None
-    Path(dir).mkdir(parents=True, exist_ok=True)
     if not recreate and len(os.listdir(dir)) != 0:
         error("Directory {} not empty".format(dir))
     else:
@@ -78,6 +77,7 @@ def download(dir, competition=None, dataset=None, recreate=None):
     return output
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
+    Path(dir).mkdir(parents=True, exist_ok=True)
     volume = None
     instance_id = get_instanceid()
     if not instance_id:
@@ -143,7 +143,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 InstanceId=instance_id,
                 VolumeId=volume.id,
             )
-        except botocore.ClientError as e:
+        except botocore.exceptions.ClientError as e:
             # might just be already attached, so don't return
             error("VolumeId {}, {}".format(volume.id, str(e)))
 
@@ -157,9 +157,10 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 attached = attachment and attachment['State'] == 'attached'
                 if attached:
                     fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
-                    if not fstype:
-                        os.system("sudo mkfs -t ext4 {}".format(device))
-                    os.system("sudo mount {} {}".format(device, dir))
+                    if not fstype and 0 != os.system("sudo mkfs -t ext4 {}".format(device)):
+                        error("Cannot mkfs.ext4 {}".format(device))
+                    if 0 != os.system("sudo mount {} {}".format(device, dir)):
+                        error("Cannot mount {} to {}".format(device, dir))
                     break
             sleep(3)
         if not attached:
