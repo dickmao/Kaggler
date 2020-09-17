@@ -135,21 +135,27 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 error("VolumeId {}, {}".format(volume.id, str(e)))
 
             attached = False
-            device = '/dev/xvdh'
+            device = '/dev/xvdf'
+            client.attach_volume(
+                Device=device,
+                InstanceId=instance_id,
+                VolumeId=volume.id,
+            )
             for _ in range(5):
-                response = client.attach_volume(
-                    Device=device,
-                    InstanceId=instance_id,
-                    VolumeId=volume.id,
+                response = client.describe_volumes(
+                    VolumeIds=[volume.id],
                 )
-                attached = (response['State'] == 'attached')
-                if attached:
-                    fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
-                    if not fstype:
-                        os.system("sudo mkfs -t xfs {}".format(device))
-                    break
-                else:
-                    sleep(3)
+                response_volume = next(iter(response['Volumes']), None)
+                if response_volume:
+                    attachment = next(iter(response_volume['Attachments']), None)
+                    attached = attachment and attachment['State'] == 'attached'
+                    if attached:
+                        fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
+                        if not fstype:
+                            os.system("sudo mkfs -t ext4 {}".format(device))
+                        os.system("sudo mount {} {}".format(device, dir))
+                        break
+                sleep(3)
             if not attached:
                 error("Cannot attach {} to {}".format(volume.id, instance_id))
     return volume
