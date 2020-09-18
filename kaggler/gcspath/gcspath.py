@@ -57,37 +57,40 @@ def error(message):
                                    frame.f_lineno, frame.f_code.co_name,
                                    message))
 
-def download(dir, competition=None, dataset=None, recreate=None):
-    output = None
+def download(dir, url, recreate=None):
     if not recreate and len(os.listdir(dir)) != 0:
         error("Directory {} not empty".format(dir))
-    else:
-        url = gcspath(competition=competition, dataset=dataset)
-        try:
-            with Restorer(['gsutil', '-m', '-q', 'rsync', '-r', url, dir]):
-                stderr = io.StringIO()
-                with redirect_stderr(stderr):
-                    stdout = io.StringIO()
-                    with redirect_stdout(stdout):
-                        import gslib.__main__
-                        gslib.__main__.main()
-                        output = next(iter(reversed(stderr.getvalue()).split()), None)
-        except Exception as e:
-            error("{}: {}".format(str(e), stderr.getvalue()))
+        return None
+    return gsutil_rsync(dir, url)
+
+def gsutil_rsync(dir, url):
+    output = None
+    try:
+        with Restorer(['gsutil', '-m', '-q', 'rsync', '-r', url, dir]):
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    import gslib.__main__
+                    gslib.__main__.main()
+                    output = next(iter(reversed(stderr.getvalue()).split()), None)
+    except Exception as e:
+        error("{}: {}".format(str(e), stderr.getvalue()))
     return output
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
+    url = gcspath(competition=competition, dataset=dataset)
     volume = None
     instance_id = get_instanceid()
     if not instance_id:
-        download(dir, competition=competition, dataset=dataset, recreate=recreate)
+        download(dir, url, recreate)
     else:
         region = get_region()
         ec2 = boto3.resource('ec2', region_name=region)
         label = competition or dataset
-        volumes = ec2.volumes.filter(Filters=[{'Name': 'tag:name',
-                                               'Values': [label]}])
+        snapshots = ec2.snapshots.filter()
+        volumes = ec2.volumes.filter(Filters=[{'Name': 'tag:name', 'Values': [label]}])
         volume = next(iter(volumes), None)
         client = boto3.client('ec2', region_name=region)
         if volume and recreate:
@@ -133,7 +136,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 client.get_waiter('volume_available').wait(VolumeIds=[volume.id])
             except botocore.exceptions.WaiterError as e:
                 error("VolumeId {}, {}".format(volume.id, str(e)))
-                return volume
+                return None
 
         attached = False
         device = '/dev/xvdf'
@@ -158,15 +161,23 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                                 and Path(device).is_block_device()])
                 if attached:
                     fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
-                    if not fstype and 0 != os.system("sudo mkfs -t ext4 {}".format(device)):
-                        error("Cannot mkfs.ext4 {}".format(device))
+                    if not fstype:
+                        if 0 != os.system("sudo mkfs -t ext4 {}".format(device)):
+                            error("Cannot mkfs.ext4 {}".format(device))
+                            break
                     if 0 != os.system("sudo mount {} {}".format(device, dir)):
                         error("Cannot mount {} to {}".format(device, dir))
+                    elif not fstype and gsutil_rsync(url, dir):
+                        client.create_snapshot(
+                            Description=label,
+                            VolumeId=volume.id,
+                        )
                     break
             sleep(3)
         if not attached:
             error("Cannot attach {} to {}".format(volume.id, instance_id))
             return None
+
     return volume
 
 def fusermount(mountpoint, **kwargs):
