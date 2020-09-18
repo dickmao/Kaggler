@@ -73,7 +73,8 @@ def gsutil_rsync(dir, url):
                 with redirect_stdout(stdout):
                     import gslib.__main__
                     gslib.__main__.main()
-                    output = next(iter(reversed(stderr.getvalue()).split()), None)
+                    if stderr.getvalue():
+                        output = next(iter(reversed(stderr.getvalue()).split()))
     except Exception as e:
         error("{}: {}".format(str(e), stderr.getvalue()))
     return output
@@ -166,23 +167,6 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
         device = '/dev/xvdf'
 
         try:
-            client.modify_instance_attribute(
-                Attribute='blockDeviceMapping',
-                BlockDeviceMappings=[
-                    {
-                        'DeviceName': device,
-                        'Ebs': {
-                            'DeleteOnTermination': True,
-                            'VolumeId': volume.id,
-                        },
-                    },
-                ],
-                InstanceId=instance_id,
-            )
-        except botocore.exceptions.ClientError as e:
-            error("I did not think this would work {}".format(str(e)))
-
-        try:
             client.attach_volume(
                 Device=device,
                 InstanceId=instance_id,
@@ -208,7 +192,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                             break
                     if 0 != os.system("sudo mount {} {}".format(device, dir)):
                         error("Cannot mount {} to {}".format(device, dir))
-                    elif not fstype and gsutil_rsync(url, dir):
+                    elif not fstype and gsutil_rsync(dir, url):
                         client.create_snapshot(
                             Description=label,
                             VolumeId=volume.id,
@@ -218,6 +202,22 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
         if not attached:
             error("Cannot attach {} to {}".format(volume.id, instance_id))
             return None
+        try:
+            client.modify_instance_attribute(
+                Attribute='blockDeviceMapping',
+                BlockDeviceMappings=[
+                    {
+                        'DeviceName': device,
+                        'Ebs': {
+                            'DeleteOnTermination': True,
+                            'VolumeId': volume.id,
+                        },
+                    },
+                ],
+                InstanceId=instance_id,
+            )
+        except botocore.exceptions.ClientError as e:
+            error("Device {} cannot delete-on-terminate: {}".format(device, str(e)))
 
     return volume
 
