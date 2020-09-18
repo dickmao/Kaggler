@@ -152,10 +152,10 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
             )
             response_volume = next(iter(response['Volumes']), None)
             if response_volume:
-                attachment = next(iter(response_volume['Attachments']), None)
-                attached = attachment \
-                    and attachment['State'] == 'attached' \
-                    and Path(device).is_block_device()
+                attached = any([att for att in response_volume['Attachments'] if \
+                                att['InstanceId'] == instance_id \
+                                and att['State'] == 'attached' \
+                                and Path(device).is_block_device()])
                 if attached:
                     fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
                     if not fstype and 0 != os.system("sudo mkfs -t ext4 {}".format(device)):
