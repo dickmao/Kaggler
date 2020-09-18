@@ -145,7 +145,6 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
             )
         except botocore.exceptions.ClientError as e:
             error("VolumeId {}, {}".format(volume.id, str(e)))
-            return None
 
         for _ in range(5):
             response = client.describe_volumes(
@@ -154,7 +153,9 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
             response_volume = next(iter(response['Volumes']), None)
             if response_volume:
                 attachment = next(iter(response_volume['Attachments']), None)
-                attached = attachment and attachment['State'] == 'attached'
+                attached = attachment \
+                    and attachment['State'] == 'attached' \
+                    and Path(device).is_block_device()
                 if attached:
                     fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
                     if not fstype and 0 != os.system("sudo mkfs -t ext4 {}".format(device)):
