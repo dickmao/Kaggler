@@ -144,8 +144,8 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 VolumeId=volume.id,
             )
         except botocore.exceptions.ClientError as e:
-            # might just be already attached, so don't return
             error("VolumeId {}, {}".format(volume.id, str(e)))
+            return None
 
         for _ in range(5):
             response = client.describe_volumes(
