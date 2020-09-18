@@ -89,20 +89,17 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
         region = get_region()
         ec2 = boto3.resource('ec2', region_name=region)
         label = competition or dataset
-        snapshots = ec2.snapshots.filter()
-        volumes = ec2.volumes.filter(Filters=[{'Name': 'tag:name', 'Values': [label]}])
-        volume = next(iter(volumes), None)
+        snapshots = ec2.snapshots.filter(
+            Filters=[{'Name': 'description', 'Values': [label]},],
+            OwnerIds=['self',],
+        )
+        snapshot = next(iter(snapshots), None)
         client = boto3.client('ec2', region_name=region)
-        if volume and recreate:
-            for i, d in [(a.InstanceId, a.Device) for a in volume.attachments]:
-                volume.detach_from_instance(Device=d, InstanceId=i, Force=True)
-                volume.delete()
-            try:
-                client.get_waiter('volume_deleted').wait(VolumeIds=[volume.id])
-            except botocore.exceptions.WaiterError as e:
-                error("VolumeId {}, {}".format(volume.id, str(e)))
-            volume = None
-        if not volume:
+        if snapshot and recreate:
+            snapshot.delete()
+            snapshot = None
+        volume = None
+        if not snapshot:
             url = gcspath(competition=competition, dataset=dataset)
             with Restorer(['gsutil', 'du', '-s', url]):
                 stdout = io.StringIO()
@@ -132,14 +129,59 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                     }
                 ],
             )
+        else:
             try:
-                client.get_waiter('volume_available').wait(VolumeIds=[volume.id])
+                snapshot.wait_until_completed(
+                    Filters=[{'Name': 'description', 'Values': [label]},],
+                    OwnerIds=['self',],
+                )
             except botocore.exceptions.WaiterError as e:
-                error("VolumeId {}, {}".format(volume.id, str(e)))
+                error("SnapshotId {}, {}".format(snapshot.id, str(e)))
                 return None
+            volume = ec2.create_volume(
+                AvailabilityZone=get_az(),
+                SnapshotId=snapshot.id,
+                TagSpecifications=[
+                    {
+                        'ResourceType': 'volume',
+                        'Tags': [
+                            {
+                                'Key': 'name',
+                                'Value': label,
+                            },
+                        ]
+                    }
+                ],
+            )
+        if not volume:
+            error("Could not create volume")
+            return None
+        try:
+            client.get_waiter('volume_available').wait(VolumeIds=[volume.id])
+        except botocore.exceptions.WaiterError as e:
+            error("VolumeId {}, {}".format(volume.id, str(e)))
+            return None
 
         attached = False
         device = '/dev/xvdf'
+
+        try:
+            client.modify_instance_attribute(
+                Attribute='blockDeviceMapping',
+                BlockDeviceMappings=[
+                    {
+                        'DeviceName': device,
+                        'Ebs': {
+                            'DeleteOnTermination': True,
+                            'VolumeId': volume.id,
+                        },
+                    },
+                ],
+                InstanceId=instance_id,
+            )
+        except botocore.exceptions.ClientError as e:
+            error("I did not think this would work {}".format(str(e)))
+
         try:
             client.attach_volume(
                 Device=device,
@@ -148,7 +190,6 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
             )
         except botocore.exceptions.ClientError as e:
             error("VolumeId {}, {}".format(volume.id, str(e)))
-
         for _ in range(5):
             response = client.describe_volumes(
                 VolumeIds=[volume.id],
