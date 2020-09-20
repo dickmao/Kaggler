@@ -78,10 +78,10 @@ def gsutil_rsync(dir, url):
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
-    url = gcspath(competition=competition, dataset=dataset)
     volume = None
     instance_id = get_instanceid()
     if not instance_id:
+        url = gcspath(competition=competition, dataset=dataset)
         download(dir, url, recreate)
     else:
         region = get_region()
@@ -103,9 +103,10 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
             if volume:
                 volume.delete()
                 volume = None
+        client = boto3.client('ec2', region_name=region)
+        url = gcspath(competition=competition, dataset=dataset)
         if not volume:
             if not snapshot:
-                url = gcspath(competition=competition, dataset=dataset)
                 with Restorer(['gsutil', 'du', '-s', url]):
                     stdout = io.StringIO()
                     with redirect_stdout(stdout):
@@ -158,16 +159,14 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                         }
                     ],
                 )
+            try:
+                client.get_waiter('volume_available').wait(VolumeIds=[volume.id])
+            except botocore.exceptions.WaiterError as e:
+                error("VolumeId {}, {}".format(volume.id, str(e)))
+                return None
         if not volume:
             error("Could not create volume")
             return None
-        client = boto3.client('ec2', region_name=region)
-        try:
-            client.get_waiter('volume_available').wait(VolumeIds=[volume.id])
-        except botocore.exceptions.WaiterError as e:
-            error("VolumeId {}, {}".format(volume.id, str(e)))
-            return None
-
         attached = False
         device = '/dev/xvdf'
         try:
@@ -198,9 +197,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                         if 0 != os.system("sudo mkfs.ext4 {}".format(device)):
                             error("Cannot mkfs.ext4 {}".format(device))
                             break
-                    if 0 != os.system("sudo mount {} {}".format(device, dir)):
-                        error("Cannot mount {} to {}".format(device, dir))
-                    if 0 != os.system("sudo mount -o remount,rw,user, {} {}".format(device, dir)):
+                    if 0 != os.system("sudo mount -o remount,rw,user {} {}".format(device, dir)):
                         error("Cannot mount {} to {}".format(device, dir))
                     elif 0 != os.system("sudo chmod 777 {}".format(dir)):
                         error("Cannot chmod {} for write".format(dir))
