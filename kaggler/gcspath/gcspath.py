@@ -10,7 +10,7 @@ import inspect
 import botocore
 import io
 import math
-import psutil
+import shlex
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from urllib.request import urlopen
@@ -43,11 +43,9 @@ def get_region():
 class Restorer():
     def __init__(self, value):
         self._current = value
-
     def __enter__(self):
         self._old = sys.argv
         sys.argv = self._current
-
     def __exit__(self, *args):
         sys.argv = self._old
 
@@ -66,15 +64,14 @@ def download(dir, url, recreate=None):
 def gsutil_rsync(dir, url):
     output = None
     try:
-        with Restorer(['gsutil', '-m', '-q', 'rsync', '-r', url, dir]):
+        with Restorer(['gsutil', '-m', 'rsync', '-r', url, dir]):
             stderr = io.StringIO()
             with redirect_stderr(stderr):
                 stdout = io.StringIO()
                 with redirect_stdout(stdout):
                     import gslib.__main__
                     gslib.__main__.main()
-                    if stderr.getvalue():
-                        output = next(iter(reversed(stderr.getvalue()).split()))
+                    output = next(iter(reversed(stderr.getvalue().splitlines())))
     except Exception as e:
         error("{}: {}".format(str(e), stderr.getvalue()))
     return output
@@ -95,68 +92,76 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
             OwnerIds=['self',],
         )
         snapshot = next(iter(snapshots), None)
-        client = boto3.client('ec2', region_name=region)
-        if snapshot and recreate:
-            snapshot.delete()
-            snapshot = None
-        volume = None
-        if not snapshot:
-            url = gcspath(competition=competition, dataset=dataset)
-            with Restorer(['gsutil', 'du', '-s', url]):
-                stdout = io.StringIO()
-                with redirect_stdout(stdout):
-                    import gslib.__main__
-                    gslib.__main__.main()
-                    sz = next(iter(stdout.getvalue().split()), None)
-                try:
-                    float(sz)
-                except ValueError:
-                    error("Could not ascertain bucket size of {}".format(url))
-                    return None
-                else:
-                    sz = math.ceil(float(sz)/(2 << 29))
-            volume = ec2.create_volume(
-                AvailabilityZone=get_az(),
-                Size=sz,
-                TagSpecifications=[
-                    {
-                        'ResourceType': 'volume',
-                        'Tags': [
-                            {
-                                'Key': 'name',
-                                'Value': label,
-                            },
-                        ]
-                    }
-                ],
-            )
-        else:
-            try:
-                snapshot.wait_until_completed(
-                    Filters=[{'Name': 'description', 'Values': [label]},],
-                    OwnerIds=['self',],
+        volumes = ec2.volumes.filter(
+            Filters=[{'Name': 'tag:name', 'Values': [label]},],
+        )
+        volume = next(iter(volumes), None)
+        if recreate:
+            if snapshot:
+                snapshot.delete()
+                snapshot = None
+            if volume:
+                volume.delete()
+                volume = None
+        if not volume:
+            if not snapshot:
+                url = gcspath(competition=competition, dataset=dataset)
+                with Restorer(['gsutil', 'du', '-s', url]):
+                    stdout = io.StringIO()
+                    with redirect_stdout(stdout):
+                        import gslib.__main__
+                        gslib.__main__.main()
+                        sz = next(iter(stdout.getvalue().split()), None)
+                    try:
+                        float(sz)
+                    except ValueError:
+                        error("Could not ascertain bucket size of {}".format(url))
+                        return None
+                    else:
+                        sz = math.ceil(float(sz)/(2 << 29))
+                volume = ec2.create_volume(
+                    AvailabilityZone=get_az(),
+                    Size=sz,
+                    TagSpecifications=[
+                        {
+                            'ResourceType': 'volume',
+                            'Tags': [
+                                {
+                                    'Key': 'name',
+                                    'Value': label,
+                                },
+                            ]
+                        }
+                    ],
                 )
-            except botocore.exceptions.WaiterError as e:
-                error("SnapshotId {}, {}".format(snapshot.id, str(e)))
-                return None
-            volume = ec2.create_volume(
-                AvailabilityZone=get_az(),
-                SnapshotId=snapshot.id,
-                TagSpecifications=[
-                    {
-                        'ResourceType': 'volume',
-                        'Tags': [
-                            {
-                                'Key': 'name',
-                                'Value': label,
-                            },
-                        ]
-                    }
-                ],
-            )
+            else:
+                try:
+                    snapshot.wait_until_completed(
+                        Filters=[{'Name': 'description', 'Values': [label]},],
+                        OwnerIds=['self',],
+                    )
+                except botocore.exceptions.WaiterError as e:
+                    error("SnapshotId {}, {}".format(snapshot.id, str(e)))
+                    return None
+                volume = ec2.create_volume(
+                    AvailabilityZone=get_az(),
+                    SnapshotId=snapshot.id,
+                    TagSpecifications=[
+                        {
+                            'ResourceType': 'volume',
+                            'Tags': [
+                                {
+                                    'Key': 'name',
+                                    'Value': label,
+                                },
+                            ]
+                        }
+                    ],
+                )
         if not volume:
             error("Could not create volume")
             return None
+        client = boto3.client('ec2', region_name=region)
         try:
             client.get_waiter('volume_available').wait(VolumeIds=[volume.id])
         except botocore.exceptions.WaiterError as e:
@@ -165,7 +170,6 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
 
         attached = False
         device = '/dev/xvdf'
-
         try:
             client.attach_volume(
                 Device=device,
@@ -173,6 +177,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 VolumeId=volume.id,
             )
         except botocore.exceptions.ClientError as e:
+            # might already be attached, warn and continue
             error("VolumeId {}, {}".format(volume.id, str(e)))
         for _ in range(5):
             response = client.describe_volumes(
@@ -185,13 +190,20 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                                 and att['State'] == 'attached' \
                                 and Path(device).is_block_device()])
                 if attached:
-                    fstype = next(iter([part.fstype for part in psutil.disk_partitions() if part.device == device]), None)
-                    if not fstype:
-                        if 0 != os.system("sudo mkfs -t ext4 {}".format(device)):
+                    fstype = subprocess.run(shlex.split('sudo blkid -s TYPE -o value {}'.format(device)), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                    try:
+                        fstype.check_returncode()
+                        fstype = fstype.stdout.decode('utf-8').rstrip()
+                    except subprocess.CalledProcessError:
+                        if 0 != os.system("sudo mkfs.ext4 {}".format(device)):
                             error("Cannot mkfs.ext4 {}".format(device))
                             break
                     if 0 != os.system("sudo mount {} {}".format(device, dir)):
                         error("Cannot mount {} to {}".format(device, dir))
+                    if 0 != os.system("sudo mount -o remount,rw,user, {} {}".format(device, dir)):
+                        error("Cannot mount {} to {}".format(device, dir))
+                    elif 0 != os.system("sudo chmod 777 {}".format(dir)):
+                        error("Cannot chmod {} for write".format(dir))
                     elif not fstype and gsutil_rsync(dir, url):
                         client.create_snapshot(
                             Description=label,
