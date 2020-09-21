@@ -177,7 +177,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
             )
         except botocore.exceptions.ClientError as e:
             # might already be attached, warn and continue
-            error("VolumeId {}, {}".format(volume.id, str(e)))
+            error("attach_volume {}: {}".format(volume.id, str(e)))
         for _ in range(5):
             response = client.describe_volumes(
                 VolumeIds=[volume.id],
@@ -197,7 +197,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                         if 0 != os.system("sudo mkfs.ext4 {}".format(device)):
                             error("Cannot mkfs.ext4 {}".format(device))
                             break
-                    if 0 != os.system("sudo mount -o remount,rw,user {} {}".format(device, dir)):
+                    if 0 != os.system("sudo bash -c 'grep -wqs {} /proc/mounts || mount -o rw,user {} {}'".format(device, device, dir)):
                         error("Cannot mount {} to {}".format(device, dir))
                     elif 0 != os.system("sudo chmod 777 {}".format(dir)):
                         error("Cannot chmod {} for write".format(dir))
