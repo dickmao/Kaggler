@@ -194,6 +194,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                         fstype.check_returncode()
                         fstype = fstype.stdout.decode('utf-8').rstrip()
                     except subprocess.CalledProcessError:
+                        fstype = None
                         if 0 != os.system("sudo mkfs.ext4 {}".format(device)):
                             error("Cannot mkfs.ext4 {}".format(device))
                             break
