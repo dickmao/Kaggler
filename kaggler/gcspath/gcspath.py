@@ -62,30 +62,18 @@ def download(dir, url, recreate=None):
     return gsutil_rsync(dir, url)
 
 def gsutil_rsync(dir, url):
-    try:
-        with Restorer(['gsutil', '-m', 'rsync', '-r', url, dir]):
-            stderr = io.StringIO()
-            with redirect_stderr(stderr):
-                stdout = io.StringIO()
-                with redirect_stdout(stdout):
-                    import gslib.__main__
-                    gslib.__main__.main()
-                    output = next(iter(reversed(stderr.getvalue().splitlines())))
-    except Exception as e:
-        error("{}: {}".format(str(e), stderr.getvalue()))
-        raise e
+    with Restorer(['gsutil', '-m', '-q', 'rsync', '-r', url, dir]):
+        stderr = io.StringIO()
+        with redirect_stderr(stderr):
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                import gslib.__main__
+                gslib.__main__.main()
+                output = next(iter(reversed(stderr.getvalue().splitlines())))
     return output
 
 def gsutil_rsync_retry(dir, url):
-    output = None
-    for i in range(3):
-        try:
-            output = gsutil_rsync(dir, url)
-            break
-        except Exception:
-            error("Retrying #{}".format(i+1))
-            sleep(3)
-    return output
+    return gsutil_rsync(dir, url)
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
