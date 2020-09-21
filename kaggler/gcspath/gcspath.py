@@ -62,7 +62,6 @@ def download(dir, url, recreate=None):
     return gsutil_rsync(dir, url)
 
 def gsutil_rsync(dir, url):
-    output = None
     try:
         with Restorer(['gsutil', '-m', 'rsync', '-r', url, dir]):
             stderr = io.StringIO()
@@ -74,6 +73,18 @@ def gsutil_rsync(dir, url):
                     output = next(iter(reversed(stderr.getvalue().splitlines())))
     except Exception as e:
         error("{}: {}".format(str(e), stderr.getvalue()))
+        raise e
+    return output
+
+def gsutil_rsync_retry(dir, url):
+    output = None
+    for i in range(3):
+        try:
+            output = gsutil_rsync(dir, url)
+            break
+        except Exception:
+            error("Retrying #{}".format(i+1))
+            sleep(3)
     return output
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
@@ -202,7 +213,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                         error("Cannot mount {} to {}".format(device, dir))
                     elif 0 != os.system("sudo chmod 777 {}".format(dir)):
                         error("Cannot chmod {} for write".format(dir))
-                    elif not fstype and gsutil_rsync(dir, url):
+                    elif not fstype and gsutil_rsync_retry(dir, url):
                         client.create_snapshot(
                             Description=label,
                             VolumeId=volume.id,
