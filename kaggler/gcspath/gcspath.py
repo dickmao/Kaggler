@@ -69,7 +69,7 @@ def gsutil_rsync(dir, url):
             with redirect_stdout(stdout):
                 import gslib.__main__
                 gslib.__main__.main()
-                output = next(iter(reversed(stderr.getvalue().splitlines())))
+                output = next(iter(reversed(stderr.getvalue().splitlines())), None)
     return output
 
 def gsutil_rsync_retry(dir, url):
