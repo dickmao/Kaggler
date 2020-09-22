@@ -108,6 +108,10 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 volume = None
         client = boto3.client('ec2', region_name=region)
         url = gcspath(competition=competition, dataset=dataset)
+        if not url:
+            error("Could not find bucket for {}".format(competition or dataset))
+            return None
+
         if not volume:
             if not snapshot:
                 with Restorer(['gsutil', 'du', '-s', url]):
