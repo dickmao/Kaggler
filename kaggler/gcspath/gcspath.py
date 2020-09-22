@@ -15,6 +15,8 @@ from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from urllib.request import urlopen
 from time import sleep
+import importlib
+import gslib.__main__
 
 def get_instanceid():
     try:
@@ -62,18 +64,30 @@ def download(dir, url, recreate=None):
     return gsutil_rsync(dir, url)
 
 def gsutil_rsync(dir, url):
-    with Restorer(['gsutil', '-m', '-q', 'rsync', '-r', url, dir]):
-        stderr = io.StringIO()
-        with redirect_stderr(stderr):
-            stdout = io.StringIO()
-            with redirect_stdout(stdout):
-                import gslib.__main__
-                gslib.__main__.main()
-                output = next(iter(reversed(stderr.getvalue().splitlines())), None)
+    try:
+        with Restorer(['gsutil', '-m', '-q', 'rsync', '-r', url, dir]):
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                stdout = io.StringIO()
+                with redirect_stdout(stdout):
+                    importlib.reload(gslib.__main__)
+                    gslib.__main__.main()
+                    output = next(iter(reversed(stderr.getvalue().splitlines())), None)
+    except Exception as e:
+        error("{}: {}".format(str(e), stderr.getvalue()))
+        raise e
     return output
 
 def gsutil_rsync_retry(dir, url):
-    return gsutil_rsync(dir, url)
+    output = None
+    for i in range(3):
+        try:
+            output = gsutil_rsync(dir, url)
+            break
+        except Exception:
+            error("Retrying #{}".format(i+1))
+            sleep(3)
+    return output
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
@@ -109,9 +123,9 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 with Restorer(['gsutil', 'du', '-s', url]):
                     stdout = io.StringIO()
                     with redirect_stdout(stdout):
-                        import gslib.__main__
+                        importlib.reload(gslib.__main__)
                         gslib.__main__.main()
-                        sz = next(iter(stdout.getvalue().split()), None)
+                        sz = next(iter(stdout.getvalue().splitlines()), None)
                     try:
                         float(sz)
                     except ValueError:
