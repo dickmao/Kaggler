@@ -11,7 +11,7 @@ import botocore
 import io
 import math
 import shlex
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stdout
 from pathlib import Path
 from urllib.request import urlopen
 from time import sleep
@@ -66,28 +66,18 @@ def download(dir, url, recreate=None):
 def gsutil_rsync(dir, url):
     try:
         with Restorer(['gsutil', '-m', '-q', 'rsync', '-r', url, dir]):
-            stderr = io.StringIO()
-            with redirect_stderr(stderr):
-                stdout = io.StringIO()
-                with redirect_stdout(stdout):
-                    importlib.reload(gslib.__main__)
-                    gslib.__main__.main()
-                    output = next(iter(reversed(stderr.getvalue().splitlines())), None)
+            importlib.reload(gslib.__main__)
+            gslib.__main__.main()
     except Exception as e:
-        error("{}: {}".format(str(e), stderr.getvalue()))
         raise e
-    return output
 
-def gsutil_rsync_retry(dir, url):
-    output = None
-    for i in range(3):
+def gsutil_rsync_retry(dir, url, retries=1):
+    for i in range(retries):
         try:
-            output = gsutil_rsync(dir, url)
+            gsutil_rsync(dir, url)
             break
         except Exception:
             error("Retrying #{}".format(i+1))
-            sleep(3)
-    return output
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
@@ -215,7 +205,8 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                         error("Cannot mount {} to {}".format(device, dir))
                     elif 0 != os.system("sudo chmod 777 {}".format(dir)):
                         error("Cannot chmod {} for write".format(dir))
-                    elif not fstype and gsutil_rsync_retry(dir, url):
+                    elif not fstype:
+                        gsutil_rsync_retry(dir, url)
                         client.create_snapshot(
                             Description=label,
                             VolumeId=volume.id,
