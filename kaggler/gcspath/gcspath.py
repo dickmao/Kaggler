@@ -96,7 +96,9 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
         )
         snapshot = next(iter(snapshots), None)
         volumes = ec2.volumes.filter(
-            Filters=[{'Name': 'tag:name', 'Values': [label]},],
+            Filters=[{'Name': 'tag:name', 'Values': [label]},
+                     {'Name': 'availability-zone', 'Values': [get_az()]},
+                     ],
         )
         volume = next(iter(volumes), None)
         if recreate:
@@ -227,7 +229,8 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                     {
                         'DeviceName': device,
                         'Ebs': {
-                            'DeleteOnTermination': True,
+                            # just in case, already the default
+                            'DeleteOnTermination': False,
                             'VolumeId': volume.id,
                         },
                     },
