@@ -125,7 +125,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                     with redirect_stdout(stdout):
                         importlib.reload(gslib.__main__)
                         gslib.__main__.main()
-                        sz = next(iter(stdout.getvalue().splitlines()), None)
+                        sz = next(iter(stdout.getvalue().split()), None)
                     try:
                         float(sz)
                     except ValueError:
