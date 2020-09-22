@@ -259,4 +259,4 @@ def gcspath(competition=None, dataset=None):
         *copts,
         *dopts
     ], stdout=subprocess.PIPE)
-    return next(x for x in result.stdout.decode().split('\n') if re.compile('^gs://').search(x), None)
+    return next(iter([x for x in result.stdout.decode().split('\n') if re.compile('^gs://').search(x)]), None)
