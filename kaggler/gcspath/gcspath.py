@@ -34,6 +34,30 @@ def get_az():
         pass
     return None
 
+def get_mac():
+    try:
+        return urlopen('http://169.254.169.254/latest/meta-data/network/interfaces/macs/', timeout=1) \
+            .read().decode()
+    except:
+        pass
+    return None
+
+def get_subnet():
+    try:
+        return urlopen('http://169.254.169.254/latest/meta-data/network/interfaces/macs/{}/subnet-id'.format(get_mac()), timeout=1) \
+            .read().decode()
+    except:
+        pass
+    return None
+
+def get_vpc():
+    try:
+        return urlopen('http://169.254.169.254/latest/meta-data/network/interfaces/macs/{}/vpc-id'.format(get_mac()), timeout=1) \
+            .read().decode()
+    except:
+        pass
+    return None
+
 def get_region():
     try:
         return urlopen('http://169.254.169.254/latest/meta-data/placement/region', timeout=1) \
@@ -78,6 +102,141 @@ def gsutil_rsync_retry(dir, url, retries=1):
             break
         except Exception:
             error("Retrying #{}".format(i+1))
+
+def efs_populate(dir, competition=None, dataset=None, recreate=None):
+    Path(dir).mkdir(parents=True, exist_ok=True)
+    instance_id = get_instanceid()
+    if not instance_id:
+        url = gcspath(competition=competition, dataset=dataset)
+        download(dir, url, recreate)
+    else:
+        region = get_region()
+        efs_client = boto3.client('efs', region_name=region)
+        ec2_client = boto3.client('ec2', region_name=region)
+        label = competition or dataset
+        fs_response = efs_client.describe_file_systems(CreationToken=label)
+        efs = next(iter(fs_response['FileSystems']), None)
+        if recreate:
+            if efs:
+                try:
+                    fs_response = efs_client.describe_mount_targets(FileSystemId=efs['FileSystemId'])
+                    for target in fs_response['MountTargets']:
+                        efs_client.delete_mount_target(MountTargetId=target)
+                    efs_client.delete_file_system(FileSystemId=efs['FileSystemId'])
+                    # i want sg associated with filesystem... cannot... must use tags
+                    sg_response = ec2_client.describe_security_groups(
+                        Filters=[
+                            {
+                                'Name': 'group-name',
+                                'Values': [
+                                    label,
+                                ]
+                            },
+                        ],
+                    )
+                    sg = next(iter(sg_response['SecurityGroups']), None)
+                    if sg:
+                        ec2_client.delete_security_group(GroupId=sg['GroupId'])
+                    efs = None
+                except Exception as e:
+                    error("Could not delete filesystem {}: {}".format(efs['FileSystemId'], str(e)))
+        fs_id = None
+        if efs:
+            fs_id = efs['FileSystemId']
+        else:
+            fs_response = efs_client.create_file_system(
+                CreationToken=label,
+                Tags=[
+                    {
+                        'Key': 'name',
+                        'Value': label,
+                    },
+                ],
+            )
+            fs_id = fs_response['FileSystemId']
+        try:
+            ec2_client.create_security_group(
+                Description=label,
+                GroupName=label,
+                VpcId=get_vpc(),
+            )
+        except botocore.exceptions.ClientError as e:
+            if e.response.get('Error', {}).get('Code', 'Unknown') != 'InvalidGroup.Duplicate':
+                raise e
+        sg_response = ec2_client.describe_security_groups(
+            Filters=[
+                {
+                    'Name': 'group-name',
+                    'Values': [
+                        label,
+                    ]
+                },
+            ],
+        )
+        sg = next(iter(sg_response['SecurityGroups']), None)
+        sg_id = sg['GroupId']
+        try:
+            ec2_client.authorize_security_group_ingress(
+                GroupId=sg_id,
+                IpPermissions=[
+                    {
+                        'FromPort': 2049,
+                        'IpProtocol': 'tcp',
+                        'IpRanges': [
+                            {
+                                'CidrIp': '0.0.0.0/0',
+                                'Description': label,
+                            },
+                        ],
+                        'ToPort': 2049,
+                    },
+                ],
+            )
+        except botocore.exceptions.ClientError as e:
+            if e.response.get('Error', {}).get('Code', 'Unknown') != 'InvalidPermission.Duplicate':
+                raise e
+
+        subnet_id = get_subnet()
+        for _ in range(5):
+            try:
+                efs_client.create_mount_target(
+                    FileSystemId=fs_id,
+                    SubnetId=subnet_id,
+                    SecurityGroups=[
+                        sg_id,
+                    ],
+                )
+            except efs_client.exceptions.MountTargetConflict:
+                break
+            except efs_client.exceptions.IncorrectFileSystemLifeCycleState as e:
+                error('Retrying create mount target following: {}'.format(str(e)))
+                sleep(3)
+                pass
+        target = None
+        for _ in range(5):
+            fs_response = efs_client.describe_mount_targets(
+                FileSystemId=fs_id,
+            )
+            target = next(iter([x for x in fs_response['MountTargets'] if x['LifeCycleState'] == 'available']), None)
+            if target:
+                break
+            possible = next(iter(fs_response['MountTargets']), None)
+            if possible:
+                error('Target found with LifeCycleState: {}'.format(possible['LifeCycleState']))
+            sleep(3)
+
+        if target:
+            url = gcspath(competition=competition, dataset=dataset)
+            if not url:
+                error('Could not find bucket for {}'.format(label))
+            elif 0 != os.system("sudo bash -c 'grep -qs {} /proc/mounts || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {}.efs.{}.amazonaws.com:/ {}'".format(fs_id, fs_id, region, dir)):
+                error("Cannot mount {} to {}".format(fs_id, dir))
+            elif 0 != os.system("sudo chmod go+rw {}".format(dir)):
+                error("Cannot chmod {} for write".format(dir))
+            else:
+                gsutil_rsync_retry(dir, url)
+        else:
+            error('Could not create mount target')
 
 def ebs_volume(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
