@@ -16,7 +16,6 @@ from pathlib import Path
 from urllib.request import urlopen
 from time import sleep
 import importlib
-import gslib.__main__
 
 def get_instanceid():
     try:
@@ -72,6 +71,8 @@ class Restorer():
     def __enter__(self):
         self._old = sys.argv
         sys.argv = self._current
+        if 'gslib.__main__' in sys.modules:
+            importlib.reload(gslib.__main__)
     def __exit__(self, *args):
         sys.argv = self._old
 
@@ -90,7 +91,7 @@ def download(dir, url, recreate=None):
 def gsutil_rsync(dir, url):
     try:
         with Restorer(['gsutil', '-m', '-q', 'rsync', '-r', url, dir]):
-            importlib.reload(gslib.__main__)
+            import gslib.__main__
             gslib.__main__.main()
     except Exception as e:
         raise e
@@ -278,7 +279,7 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
                 with Restorer(['gsutil', 'du', '-s', url]):
                     stdout = io.StringIO()
                     with redirect_stdout(stdout):
-                        importlib.reload(gslib.__main__)
+                        import gslib.__main__
                         gslib.__main__.main()
                         sz = next(iter(stdout.getvalue().split()), None)
                     try:
