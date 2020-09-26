@@ -72,7 +72,7 @@ class Restorer():
         self._old = sys.argv
         sys.argv = self._current
         if 'gslib.__main__' in sys.modules:
-            importlib.reload(gslib.__main__)
+            importlib.reload(gslib.__main__) # noqa F821
     def __exit__(self, *args):
         sys.argv = self._old
 
