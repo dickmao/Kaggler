@@ -214,7 +214,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 sleep(3)
                 pass
         target = None
-        for _ in range(5):
+        for _ in range(24):
             fs_response = efs_client.describe_mount_targets(
                 FileSystemId=fs_id,
             )
@@ -224,7 +224,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
             possible = next(iter(fs_response['MountTargets']), None)
             if possible:
                 error('Target found with LifeCycleState: {}'.format(possible['LifeCycleState']))
-            sleep(3)
+            sleep(5)
 
         if target:
             url = gcspath(competition=competition, dataset=dataset)
