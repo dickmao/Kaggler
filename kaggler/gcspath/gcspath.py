@@ -11,6 +11,7 @@ import botocore
 import io
 import math
 import shlex
+import socket
 from contextlib import redirect_stdout
 from pathlib import Path
 from urllib.request import urlopen
@@ -103,6 +104,17 @@ def gsutil_rsync_retry(dir, url, retries=1):
             break
         except Exception:
             error("Retrying #{}".format(i+1))
+
+def mount_retry(dir, region, fs_id):
+    addr = '{}.efs.{}.amazonaws.com'.format(fs_id, region)
+    for _ in range(15):
+        try:
+            socket.gethostbyname(addr)
+            break
+        except socket.gaierror as e:
+            error('Retrying gethostbyname of {} after {}'.format(addr, str(e)))
+        sleep(3)
+    return 0 == os.system("sudo bash -c 'grep -qs {} /proc/mounts || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {}:/ {}'".format(fs_id, addr, dir))
 
 def efs_populate(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
@@ -230,7 +242,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
             url = gcspath(competition=competition, dataset=dataset)
             if not url:
                 error('Could not find bucket for {}'.format(label))
-            elif 0 != os.system("sudo bash -c 'grep -qs {} /proc/mounts || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {}.efs.{}.amazonaws.com:/ {}'".format(fs_id, fs_id, region, dir)):
+            elif not mount_retry(dir, region, fs_id):
                 error("Cannot mount {} to {}".format(fs_id, dir))
             elif 0 != os.system("sudo chmod go+rw {}".format(dir)):
                 error("Cannot chmod {} for write".format(dir))
