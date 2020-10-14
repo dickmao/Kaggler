@@ -247,8 +247,13 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
             elif 0 != os.system("sudo chmod go+rw {}".format(dir)):
                 error("Cannot chmod {} for write".format(dir))
             else:
-                du = sum(f.stat().st_size for f in Path(dir).glob('**/*') if f.is_file())
-                if du < 2**30:
+                du = 0
+                for f in Path(dir).glob('**/*'):
+                    if f.is_file():
+                        du += f.stat().st_size
+                    if du > 2**30:
+                        break
+                if du <= 2**30:
                     gsutil_rsync_retry(dir, url)
         else:
             error('Could not create mount target')
