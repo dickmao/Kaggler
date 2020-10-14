@@ -11,7 +11,6 @@ import botocore
 import io
 import math
 import shlex
-import socket
 from contextlib import redirect_stdout
 from pathlib import Path
 from urllib.request import urlopen
@@ -108,13 +107,11 @@ def gsutil_rsync_retry(dir, url, retries=1):
 def mount_retry(dir, region, fs_id):
     addr = '{}.efs.{}.amazonaws.com'.format(fs_id, region)
     for _ in range(15):
-        try:
-            socket.gethostbyname(addr)
-            break
-        except socket.gaierror as e:
-            error('Retrying gethostbyname of {} after {}'.format(addr, str(e)))
+        if 0 == os.system("sudo bash -c 'grep -qs {} /proc/mounts || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {}:/ {}'".format(fs_id, addr, dir)):
+            return True
+        error('Retrying mount.nfs4 {}'.format(addr))
         sleep(3)
-    return 0 == os.system("sudo bash -c 'grep -qs {} /proc/mounts || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {}:/ {}'".format(fs_id, addr, dir))
+    return False
 
 def efs_populate(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
