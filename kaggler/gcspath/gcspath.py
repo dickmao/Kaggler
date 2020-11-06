@@ -12,6 +12,9 @@ import io
 import math
 import shlex
 import socket
+import zipfile
+import datetime
+from itertools import chain
 from contextlib import redirect_stdout
 from pathlib import Path
 from urllib.request import urlopen
@@ -118,6 +121,172 @@ def mount_retry(dir, region, fs_id):
         sleep(4)
     return False
 
+def setup_expiry_slate(common, policies, label, eventsc, lambdac, iamc):
+    for expr in common:
+        try:
+            eval(expr, {"policies": policies,
+                        "function_name": sanitize(label),
+                        "role_name": sanitize(label),
+                        "rule_name": sanitize(label),
+                        "eventsc": eventsc,
+                        "lambdac": lambdac,
+                        "iamc": iamc,
+                        })
+        except (iamc.exceptions.NoSuchEntityException, lambdac.exceptions.ResourceNotFoundException, eventsc.exceptions.ResourceNotFoundException):
+            pass
+
+def sanitize(label):
+    return label.replace('/', '-')
+
+def setup_expiry(label, override=()):
+    label = sanitize(label)
+    region = get_region()
+    lambdac = boto3.client('lambda', region_name=region)
+    iamc = boto3.client('iam', region_name=region)
+    eventsc = boto3.client('events', region_name=region)
+    policies = [
+        'arn:aws:iam::aws:policy/AWSLambdaFullAccess',
+        'arn:aws:iam::aws:policy/CloudWatchEventsFullAccess',
+        'arn:aws:iam::aws:policy/AmazonEventBridgeFullAccess',
+        'arn:aws:iam::aws:policy/IAMFullAccess',
+        'arn:aws:iam::aws:policy/AmazonElasticFileSystemFullAccess',
+        'arn:aws:iam::aws:policy/AmazonEC2FullAccess',
+    ]
+    common = [
+        'lambdac.remove_permission(FunctionName=function_name, StatementId=function_name)',
+        'eventsc.remove_targets(Rule=rule_name, Ids=[ function_name ])',
+        'eventsc.delete_rule(Name=rule_name)',
+        'lambdac.delete_function(FunctionName=function_name)',
+        '[iamc.detach_role_policy(RoleName=role_name, PolicyArn=arn) for arn in policies]',
+        'iamc.delete_role(RoleName=role_name)',
+    ]
+    package = io.BytesIO()
+    with zipfile.ZipFile(package, 'w') as z:
+        info = zipfile.ZipInfo('handler.py')
+        info.external_attr = 0o777 << 16
+        z.writestr(info, """from __future__ import print_function
+import json
+import boto3
+import os
+import re
+def lambda_handler(event, context):
+    print('Received event: ' + json.dumps(event, indent=2))
+    lambdac = boto3.client('lambda', region_name=event['region'])
+    iamc = boto3.client('iam', region_name=event['region'])
+    eventsc = boto3.client('events', region_name=event['region'])
+    efsc = boto3.client('efs', region_name=event['region'])
+    policies = {}
+    function_name = context.function_name
+    role_name = function_name
+    rule_name = function_name
+    efs_name = function_name
+    fs_response = efsc.describe_file_systems(CreationToken=efs_name)
+    efs = next(iter(fs_response['FileSystems']), None)
+    if efs:
+        fs_response = efsc.describe_mount_targets(FileSystemId=efs['FileSystemId'])
+        for target in fs_response['MountTargets']:
+            efsc.delete_mount_target(MountTargetId=target['MountTargetId'])
+        efsc.delete_file_system(FileSystemId=efs['FileSystemId'])
+
+        for _ in range(5):
+            fs_response = efsc.describe_file_systems(CreationToken=efs_name)
+            efs = next(iter(fs_response['FileSystems']), None)
+            if not efs:
+                break
+            sleep(3)
+
+        ec2c = boto3.client('ec2', region_name=event['region'])
+        sg_response = ec2c.describe_security_groups(
+            Filters=[
+                {{
+                    'Name': 'group-name',
+                    'Values': [
+                        efs_name,
+                    ]
+                }},
+            ],
+        )
+        sg = next(iter(sg_response['SecurityGroups']), None)
+        if sg:
+            ec2c.delete_security_group(GroupId=sg['GroupId'])
+""".format(policies) + \
+                   '\n'.join(["""
+    try:
+        {}
+    except (iamc.exceptions.NoSuchEntityException, lambdac.exceptions.ResourceNotFoundException, eventsc.exceptions.ResourceNotFoundException):
+        pass
+    """.format(expr) for expr in common]))
+
+    setup_expiry_slate(common, policies, label, eventsc, lambdac, iamc)
+
+    try:
+        iamc.create_role(RoleName=label, AssumeRolePolicyDocument="""{
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Effect": "Allow",
+          "Principal": {
+            "Service": [
+              "lambda.amazonaws.com",
+              "events.amazonaws.com"
+            ]
+          },
+          "Action": "sts:AssumeRole"
+        }
+      ]
+    }
+    """)
+        for _ in range(5):
+            role = iamc.get_role(RoleName=label)
+            if not role['Role']['Arn']:
+                sleep(3)
+        for arn in policies:
+            iamc.attach_role_policy(RoleName=label, PolicyArn=arn)
+        lambdac.create_function(
+            FunctionName=label,
+            Runtime='python3.6',
+            Role=role['Role']['Arn'],
+            Handler='handler.lambda_handler',
+            Code={'ZipFile': package.getvalue()},
+        )
+        for _ in range(5):
+            lambdaf = lambdac.get_function(
+                FunctionName=label,
+            )
+            if not lambdaf['Configuration']['FunctionArn']:
+                sleep(3)
+        now = datetime.datetime.utcnow()
+        dow = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 0 }[now.weekday()]
+        expire_dow = ((dow + 2) % 7)
+        cron_expire_dow = expire_dow + 1
+        eventsc.put_rule(
+            Name=label,
+            RoleArn=role['Role']['Arn'],
+            ScheduleExpression='cron({} {} ? * {} *)'.format(
+                *(chain(override) if override else chain((now.minute, now.hour, cron_expire_dow)))),
+            State='ENABLED',
+        )
+        eventsc.put_targets(
+            Rule=label,
+            Targets=[
+                {
+                    'Arn': lambdaf['Configuration']['FunctionArn'],
+                    'Id': label,
+                }
+            ]
+        )
+        rule = eventsc.describe_rule(Name=label)
+        lambdac.add_permission(
+            FunctionName=label,
+            StatementId=label,
+            Action="lambda:InvokeFunction",
+            Principal="events.amazonaws.com",
+            SourceArn=rule['Arn'],
+        )
+    except Exception as e:
+        error('{}\nCleaning up...'.format(e))
+        setup_expiry_slate(common, policies, label, eventsc, lambdac, iamc)
+
 def efs_populate(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
     instance_id = get_instanceid()
@@ -128,7 +297,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
         region = get_region()
         efs_client = boto3.client('efs', region_name=region)
         ec2_client = boto3.client('ec2', region_name=region)
-        label = competition or dataset
+        label = sanitize(competition or dataset)
         fs_response = efs_client.describe_file_systems(CreationToken=label)
         efs = next(iter(fs_response['FileSystems']), None)
         if recreate:
@@ -136,7 +305,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 try:
                     fs_response = efs_client.describe_mount_targets(FileSystemId=efs['FileSystemId'])
                     for target in fs_response['MountTargets']:
-                        efs_client.delete_mount_target(MountTargetId=target)
+                        efs_client.delete_mount_target(MountTargetId=target['MountTargetId'])
                     efs_client.delete_file_system(FileSystemId=efs['FileSystemId'])
                     # i want sg associated with filesystem... cannot... must use tags
                     sg_response = ec2_client.describe_security_groups(
@@ -227,6 +396,10 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 error('Retrying create mount target following: {}'.format(str(e)))
                 sleep(3)
                 pass
+
+        if not efs:
+            zipfile(fs_id)
+
         target = None
         for _ in range(24):
             fs_response = efs_client.describe_mount_targets(
