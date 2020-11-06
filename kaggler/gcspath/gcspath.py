@@ -188,7 +188,7 @@ def lambda_handler(event, context):
             efsc.delete_mount_target(MountTargetId=target['MountTargetId'])
         efsc.delete_file_system(FileSystemId=efs['FileSystemId'])
 
-        for _ in range(5):
+        for _ in range(60):
             fs_response = efsc.describe_file_systems(CreationToken=efs_name)
             efs = next(iter(fs_response['FileSystems']), None)
             if not efs:
@@ -236,7 +236,7 @@ def lambda_handler(event, context):
       ]
     }
     """)
-        for _ in range(5):
+        for _ in range(60):
             role = iamc.get_role(RoleName=label)
             if not role['Role']['Arn']:
                 sleep(3)
@@ -249,7 +249,7 @@ def lambda_handler(event, context):
             Handler='handler.lambda_handler',
             Code={'ZipFile': package.getvalue()},
         )
-        for _ in range(5):
+        for _ in range(60):
             lambdaf = lambdac.get_function(
                 FunctionName=label,
             )
@@ -307,6 +307,13 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                     for target in fs_response['MountTargets']:
                         efs_client.delete_mount_target(MountTargetId=target['MountTargetId'])
                     efs_client.delete_file_system(FileSystemId=efs['FileSystemId'])
+                    for _ in range(60):
+                        fs_response = efs_client.describe_file_systems(CreationToken=label)
+                        efs = next(iter(fs_response['FileSystems']), None)
+                        if not efs:
+                            break
+                        sleep(3)
+
                     # i want sg associated with filesystem... cannot... must use tags
                     sg_response = ec2_client.describe_security_groups(
                         Filters=[
@@ -381,7 +388,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 raise e
 
         subnet_id = get_subnet()
-        for _ in range(5):
+        for _ in range(60):
             try:
                 efs_client.create_mount_target(
                     FileSystemId=fs_id,
