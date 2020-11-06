@@ -101,12 +101,12 @@ def gsutil_rsync(dir, url):
         raise e
 
 def gsutil_rsync_retry(dir, url, retries=1):
-    for i in range(retries):
+    for i in range(retries+1):
         try:
             gsutil_rsync(dir, url)
             break
-        except Exception:
-            error("Retrying #{}".format(i+1))
+        except Exception as e:
+            error("Retrying #{}: {}".format(i+1, str(e)))
 
 def mount_retry(dir, region, fs_id):
     addr = '{}.efs.{}.amazonaws.com'.format(fs_id, region)
@@ -388,7 +388,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 raise e
 
         subnet_id = get_subnet()
-        for _ in range(60):
+        for _ in range(4): # ThrottlingException max retries 4
             try:
                 efs_client.create_mount_target(
                     FileSystemId=fs_id,
@@ -401,7 +401,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 break
             except efs_client.exceptions.IncorrectFileSystemLifeCycleState as e:
                 error('Retrying create mount target following: {}'.format(str(e)))
-                sleep(3)
+                sleep(30)
                 pass
 
         for _ in range(60):
