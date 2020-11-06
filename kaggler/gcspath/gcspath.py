@@ -20,6 +20,7 @@ from pathlib import Path
 from urllib.request import urlopen
 from time import sleep
 import importlib
+import gslib
 
 def get_instanceid():
     try:
@@ -407,7 +408,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 sleep(30)
                 pass
 
-        for _ in range(60):
+        for _ in range(20):
             fs_response = efs_client.describe_mount_targets(
                 FileSystemId=fs_id,
             )
@@ -417,7 +418,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
             possible = next(iter(fs_response['MountTargets']), None)
             if possible:
                 error('Target found with LifeCycleState: {}'.format(possible['LifeCycleState']))
-            sleep(5)
+            sleep(15)
 
         if target:
             url = gcspath(competition=competition, dataset=dataset)
