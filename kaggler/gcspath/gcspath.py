@@ -302,36 +302,36 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
         efs = next(iter(fs_response['FileSystems']), None)
         if recreate:
             if efs:
-                try:
+                fs_response = efs_client.describe_mount_targets(FileSystemId=efs['FileSystemId'])
+                for target in fs_response['MountTargets']:
+                    efs_client.delete_mount_target(MountTargetId=target['MountTargetId'])
+                for _ in range(60):
                     fs_response = efs_client.describe_mount_targets(FileSystemId=efs['FileSystemId'])
-                    for target in fs_response['MountTargets']:
-                        efs_client.delete_mount_target(MountTargetId=target['MountTargetId'])
-                    efs_client.delete_file_system(FileSystemId=efs['FileSystemId'])
-                    for _ in range(60):
-                        fs_response = efs_client.describe_file_systems(CreationToken=label)
-                        efs = next(iter(fs_response['FileSystems']), None)
-                        if not efs:
-                            break
-                        sleep(3)
+                    if not next(iter(fs_response['MountTargets']), None):
+                        break
+                    sleep(3)
+                efs_client.delete_file_system(FileSystemId=efs['FileSystemId'])
+                for _ in range(60):
+                    fs_response = efs_client.describe_file_systems(CreationToken=label)
+                    if not next(iter(fs_response['FileSystems']), None):
+                        break
+                    sleep(3)
 
-                    # i want sg associated with filesystem... cannot... must use tags
-                    sg_response = ec2_client.describe_security_groups(
-                        Filters=[
-                            {
-                                'Name': 'group-name',
-                                'Values': [
-                                    label,
-                                ]
-                            },
-                        ],
-                    )
-                    sg = next(iter(sg_response['SecurityGroups']), None)
-                    if sg:
-                        ec2_client.delete_security_group(GroupId=sg['GroupId'])
-                    efs = None
-                except Exception as e:
-                    error("Could not delete filesystem {}: {}".format(efs['FileSystemId'], str(e)))
-        fs_id = None
+                # i want sg associated with filesystem... cannot... must use tags
+                sg_response = ec2_client.describe_security_groups(
+                    Filters=[
+                        {
+                            'Name': 'group-name',
+                            'Values': [
+                                label,
+                            ]
+                        },
+                    ],
+                )
+                sg = next(iter(sg_response['SecurityGroups']), None)
+                if sg:
+                    ec2_client.delete_security_group(GroupId=sg['GroupId'])
+                efs = None
         if efs:
             fs_id = efs['FileSystemId']
         else:
@@ -404,7 +404,6 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 sleep(3)
                 pass
 
-        target = None
         for _ in range(60):
             fs_response = efs_client.describe_mount_targets(
                 FileSystemId=fs_id,
