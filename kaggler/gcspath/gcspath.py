@@ -405,7 +405,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 pass
 
         target = None
-        for _ in range(24):
+        for _ in range(60):
             fs_response = efs_client.describe_mount_targets(
                 FileSystemId=fs_id,
             )
