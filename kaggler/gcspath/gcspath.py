@@ -302,6 +302,9 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
         efs = next(iter(fs_response['FileSystems']), None)
         if recreate:
             if efs:
+                if 0 != os.system("sudo bash -c '! grep -qs {} /proc/mounts || fusermount -u {}'".format(dir, dir)):
+                    error("Cannot unmount {}".format(dir))
+                    raise
                 fs_response = efs_client.describe_mount_targets(FileSystemId=efs['FileSystemId'])
                 for target in fs_response['MountTargets']:
                     efs_client.delete_mount_target(MountTargetId=target['MountTargetId'])
