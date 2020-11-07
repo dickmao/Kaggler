@@ -339,6 +339,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
         if efs:
             fs_id = efs['FileSystemId']
         else:
+            setup_expiry(label)
             fs_response = efs_client.create_file_system(
                 CreationToken=label,
                 Tags=[
