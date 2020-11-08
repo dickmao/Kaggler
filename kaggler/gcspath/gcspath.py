@@ -257,10 +257,6 @@ def lambda_handler(event, context):
         expire_dow = ((dow + 2) % 7)
         cron_expire_dow = expire_dow + 1
 
-        # testing
-        in_time = now + datetime.timedelta(minutes=10)
-        override = (in_time.minute, in_time.hour, dow + 1)
-
         eventsc.put_rule(
             Name=label,
             RoleArn=response['Role']['Arn'],
