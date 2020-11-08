@@ -221,7 +221,7 @@ def lambda_handler(event, context):
     setup_expiry_slate(common, policies, label, eventsc, lambdac, iamc)
 
     try:
-        iamc.create_role(RoleName=label, AssumeRolePolicyDocument="""{
+        response = iamc.create_role(RoleName=label, AssumeRolePolicyDocument="""{
       "Version": "2012-10-17",
       "Statement": [
         {
@@ -236,17 +236,13 @@ def lambda_handler(event, context):
         }
       ]
     }
-    """)
-        for _ in range(60):
-            role = iamc.get_role(RoleName=label)
-            if not role['Role']['Arn']:
-                sleep(3)
+""")
         for arn in policies:
             iamc.attach_role_policy(RoleName=label, PolicyArn=arn)
         lambdac.create_function(
             FunctionName=label,
             Runtime='python3.6',
-            Role=role['Role']['Arn'],
+            Role=response['Role']['Arn'],
             Handler='handler.lambda_handler',
             Code={'ZipFile': package.getvalue()},
         )
@@ -267,7 +263,7 @@ def lambda_handler(event, context):
 
         eventsc.put_rule(
             Name=label,
-            RoleArn=role['Role']['Arn'],
+            RoleArn=response['Role']['Arn'],
             ScheduleExpression='cron({} {} ? * {} *)'.format(
                 *(chain(override) if override else chain((now.minute, now.hour, cron_expire_dow)))),
             State='ENABLED',
