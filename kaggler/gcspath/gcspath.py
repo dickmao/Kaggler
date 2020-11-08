@@ -259,7 +259,7 @@ def lambda_handler(event, context):
 
         # testing
         in_time = now + datetime.timedelta(minutes=10)
-        override = (in_time.minute, in_time.hour, expire_dow)
+        override = (in_time.minute, in_time.hour, dow + 1)
 
         eventsc.put_rule(
             Name=label,
