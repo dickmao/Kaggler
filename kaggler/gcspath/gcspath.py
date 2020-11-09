@@ -240,7 +240,7 @@ def lambda_handler(event, context):
         for arn in policies:
             iamc.attach_role_policy(RoleName=label, PolicyArn=arn)
 
-        for j in range(5):
+        for j in range(24):
             try:
                 lambdac.create_function(
                     FunctionName=label,
@@ -254,7 +254,7 @@ def lambda_handler(event, context):
                     raise e
                 else:
                     pass
-            sleep(2)
+            sleep(5)
 
         for _ in range(60):
             lambdaf = lambdac.get_function(
