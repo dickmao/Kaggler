@@ -239,13 +239,23 @@ def lambda_handler(event, context):
 """)
         for arn in policies:
             iamc.attach_role_policy(RoleName=label, PolicyArn=arn)
-        lambdac.create_function(
-            FunctionName=label,
-            Runtime='python3.6',
-            Role=response['Role']['Arn'],
-            Handler='handler.lambda_handler',
-            Code={'ZipFile': package.getvalue()},
-        )
+
+        for j in range(5):
+            try:
+                lambdac.create_function(
+                    FunctionName=label,
+                    Runtime='python3.6',
+                    Role=response['Role']['Arn'],
+                    Handler='handler.lambda_handler',
+                    Code={'ZipFile': package.getvalue()},
+                )
+            except lambdac.exceptions.InvalidParameterValueException as e:
+                if j >= 4:
+                    raise e
+                else:
+                    pass
+            sleep(2)
+
         for _ in range(60):
             lambdaf = lambdac.get_function(
                 FunctionName=label,
