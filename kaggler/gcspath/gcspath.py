@@ -240,7 +240,8 @@ def lambda_handler(event, context):
         for arn in policies:
             iamc.attach_role_policy(RoleName=label, PolicyArn=arn)
 
-        for j in range(24):
+        role_iterations = 24
+        for j in range(role_iterations):
             try:
                 lambdac.create_function(
                     FunctionName=label,
@@ -250,10 +251,12 @@ def lambda_handler(event, context):
                     Code={'ZipFile': package.getvalue()},
                 )
             except lambdac.exceptions.InvalidParameterValueException as e:
-                if j >= 4:
+                if j >= role_iterations - 1:
                     raise e
                 else:
                     pass
+            except lambdac.exceptions.ResourceConflictException:
+                break
             sleep(5)
 
         for _ in range(60):
