@@ -435,7 +435,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
             url = gcspath(competition=competition, dataset=dataset)
             if not url:
                 error('Could not find bucket for {}'.format(label))
-            elif not mount_retry(dir, region, fs_id, fs_response['IpAddress']):
+            elif not mount_retry(dir, region, fs_id, target['IpAddress']):
                 error("Cannot mount {} to {}".format(fs_id, dir))
             elif 0 != os.system("sudo chmod go+rw {}".format(dir)):
                 error("Cannot chmod {} for write".format(dir))
