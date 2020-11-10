@@ -109,14 +109,14 @@ def gsutil_rsync_retry(dir, url, retries=1):
         except Exception as e:
             error("Retrying #{}: {}".format(i+1, str(e)))
 
-def mount_retry(dir, region, fs_id):
+def mount_retry(dir, region, fs_id, fs_ip):
     addr = '{}.efs.{}.amazonaws.com'.format(fs_id, region)
     for _ in range(15):
         try:
             socket.gethostbyname(addr)
         except socket.gaierror as e:
             error('gethostbyname ({}): {}'.format(addr, str(e)))
-        if 0 == os.system("sudo bash -c 'grep -qs {} /proc/mounts || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {}:/ {}'".format(fs_id, addr, dir)):
+        if 0 == os.system("sudo bash -c 'grep -qs {} /proc/mounts || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 {}:/ {}'".format(fs_id, fs_ip, dir)):
             return True
         error('Retrying mount.nfs4 {}'.format(addr))
         sleep(4)
@@ -435,7 +435,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
             url = gcspath(competition=competition, dataset=dataset)
             if not url:
                 error('Could not find bucket for {}'.format(label))
-            elif not mount_retry(dir, region, fs_id):
+            elif not mount_retry(dir, region, fs_id, fs_response['IpAddress']):
                 error("Cannot mount {} to {}".format(fs_id, dir))
             elif 0 != os.system("sudo chmod go+rw {}".format(dir)):
                 error("Cannot chmod {} for write".format(dir))
