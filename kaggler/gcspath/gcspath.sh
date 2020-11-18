@@ -46,6 +46,7 @@ if [ -z $USER ]; then
     exit 1
 fi
 wdir=$(mktemp -d -t gcspath.XXXXXXX)
+id="${USER}/$(basename $wdir)"
 pushd $wdir
 
 cat <<EOF >"gcspath.py"
@@ -55,8 +56,8 @@ EOF
 
 cat <<EOF >"kernel-metadata.json"
 {
-  "id": "${USER}/gcspath",
-  "title": "gcspath",
+  "id": "$id",
+  "title": "$(basename $wdir)",
   "code_file": "gcspath.py",
   "language": "python",
   "kernel_type": "script",
@@ -68,20 +69,21 @@ cat <<EOF >"kernel-metadata.json"
   "kernel_sources": []
 }
 EOF
-kaggle k push -p .
-while true ; do
-  STATUS=$(kaggle k status ${USER}/gcspath)
-  if [ $? -ne 0 ]; then
-    break
-  fi
-  if echo $STATUS | grep -o "status .*" | grep -w -q -E "complete|error" ; then
-    break
-  fi
-  echo $STATUS | grep -o "status .*"
-  sleep 1
-done
-if kaggle k output -q ${USER}/gcspath ; then
-  cat gcspath.log | grep -o "gs:[/a-z0-9-]*"
+if ! kaggle k push -p . | tee ./push.out | grep "error:" ; then
+    while true ; do
+        STATUS=$(kaggle k status $id)
+        if [ $? -ne 0 ]; then
+            break
+        fi
+        if echo $STATUS | grep -o "status .*" | grep -w -q -E "complete|error" ; then
+            break
+        fi
+        echo $STATUS | grep -o "status .*"
+        sleep 1
+    done
+    if kaggle k output -q $id ; then
+        cat gcspath.log | grep -o "gs:[/a-z0-9-]*"
+    fi
 fi
 popd
 rm -rf $wdir

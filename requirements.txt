@@ -5,7 +5,7 @@ lightgbm
 ml-metrics
 statsmodels
 matplotlib
-kaggle
+kaggle @ git+https://github.com/dickmao/kaggle-api.git@slugify#egg=kaggle
 xgboost
 boto3
 gsutil
