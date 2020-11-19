@@ -58,6 +58,8 @@ my_dataset = 'cdeotte/data-without-drift'
 efs_populate('/var/tmp/{}'.format(basename(my_dataset)), dataset=my_dataset)
 ```
 
+The initial call will rsync the data from Google Cloud Storage to Amazon S3.  In order to speed up subsequent calls, **datasets remain resident on Amazon EFS for 48 hours.  You will be charged accordingly!**  As of this writing, the cost in region USE2 is $0.30 per GB-Mo.  Following 48 hours of unuse, the dataset will automatically delete itself from EFS.
+
 ## Data I/O
 Kaggler supports CSV (`.csv`), LibSVM (`.sps`), and HDF5 (`.h5`) file formats:
 ```
