@@ -330,7 +330,6 @@ def bump_expiry(label, override=()):
     rule = eventsc.describe_rule(Name=label)
     diff = abs(minutes_to(rule['ScheduleExpression']) - minutes_to(schedule_expr))
     if diff < 180:
-        print('De minimus {} minutes'.format(diff))
         return
 
     delete_iterations = 3
@@ -348,6 +347,23 @@ def bump_expiry(label, override=()):
             else:
                 pass
         sleep(5)
+
+    targets_response = eventsc.list_targets_by_rule(
+        Rule=label,
+    )
+
+    for j in range(delete_iterations):
+        try:
+            eventsc.remove_targets(Rule=label, Ids=[ label ])
+        except eventsc.exceptions.ResourceNotFoundException:
+            break
+        except eventsc.exceptions.ConcurrentModificationException as e:
+            if j >= delete_iterations - 1 :
+                raise e
+            else:
+                pass
+        sleep(5)
+
     for j in range(delete_iterations):
         try:
             eventsc.delete_rule(Name=label)
@@ -366,6 +382,10 @@ def bump_expiry(label, override=()):
         RoleArn=role['Role']['Arn'],
         ScheduleExpression=schedule_expr,
         State='ENABLED',
+    )
+    eventsc.put_targets(
+        Rule=label,
+        Targets=[ { 'Arn': target['Arn'], 'Id': target['Id'] } for target in targets_response['Targets']],
     )
     rule = eventsc.describe_rule(Name=label)
     lambdac.add_permission(
