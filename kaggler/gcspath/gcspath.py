@@ -396,7 +396,7 @@ def bump_expiry(label, override=()):
         SourceArn=rule['Arn'],
     )
 
-def efs_populate(dir, competition=None, dataset=None, recreate=None):
+def efs_populate(dir, competition=None, dataset=None, recreate=None, override=()):
     Path(dir).mkdir(parents=True, exist_ok=True)
     instance_id = get_instanceid()
     if not instance_id:
@@ -446,9 +446,9 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 efs = None
         if efs:
             fs_id = efs['FileSystemId']
-            bump_expiry(label)
+            bump_expiry(label, override)
         else:
-            setup_expiry(label)
+            setup_expiry(label, override)
             fs_response = efs_client.create_file_system(
                 CreationToken=label,
                 Tags=[
