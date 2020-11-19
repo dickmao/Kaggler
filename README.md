@@ -38,6 +38,58 @@ python setup.py build_ext --inplace
 python setup.py install
 ```
 
+## Importing Datasets
+If you are reading this, you are likely attempting to run experiments on AWS via [EIN](https://github.com/millejoh/emacs-ipython-notebook).
+
+There are TWO kinds of datasets, those associated with a competition, and those associated with a particular Kaggle user.
+
+For the first kind ("competition"), import as follows:
+```
+from kaggler.gcspath import efs_populate
+my_competition = 'liverpool-ion-switching'
+efs_populate('/var/tmp/{}'.format(my_competition), competition=my_competition)
+```
+
+For the second kind ("user"), import as follows:
+```
+from kaggler.gcspath import efs_populate
+from os.path import basename
+my_dataset = 'cdeotte/data-without-drift'
+efs_populate('/var/tmp/{}'.format(basename(my_dataset)), dataset=my_dataset)
+```
+
+## Data I/O
+Kaggler supports CSV (`.csv`), LibSVM (`.sps`), and HDF5 (`.h5`) file formats:
+```
+# CSV format: target,feature1,feature2,...
+1,1,0,0,1,0.5
+0,0,1,0,0,5
+
+# LibSVM format: target feature-index1:feature-value1 feature-index2:feature-value2
+1 1:1 4:1 5:0.5
+0 2:1 5:1
+
+# HDF5
+- issparse: binary flag indicating whether it stores sparse data or not.
+- target: stores a target variable as a numpy.array
+- shape: available only if issparse == 1. shape of scipy.sparse.csr_matrix
+- indices: available only if issparse == 1. indices of scipy.sparse.csr_matrix
+- indptr: available only if issparse == 1. indptr of scipy.sparse.csr_matrix
+- data: dense feature matrix if issparse == 0 else data of scipy.sparse.csr_matrix
+```
+
+```python
+from kaggler.data_io import load_data, save_data
+
+X, y = load_data('train.csv')	# use the first column as a target variable
+X, y = load_data('train.h5')	# load the feature matrix and target vector from a HDF5 file.
+X, y = load_data('train.sps')	# load the feature matrix and target vector from LibSVM file.
+
+save_data(X, y, 'train.csv')
+save_data(X, y, 'train.h5')
+save_data(X, y, 'train.sps')
+```
+
 
 ## Feature Engineering
 
