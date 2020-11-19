@@ -14,6 +14,7 @@ import shlex
 import socket
 import zipfile
 import datetime
+from operator import itemgetter
 from itertools import chain
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -298,6 +299,83 @@ def lambda_handler(event, context):
         error('{}\nCleaning up...'.format(e))
         setup_expiry_slate(common, policies, label, eventsc, lambdac, iamc)
 
+def minutes_to(expr):
+    """Distance in minutes between expr and now."""
+    regex = re.compile(r"""cron\(([^)]+)\)""")
+    (end_minute, end_hour, end_dow) = list(map(int, itemgetter(0, 1, 4)(regex.match(expr).group(1).split())))
+
+    beg = datetime.datetime.utcnow()
+    beg_dow = { 0: 2, 1: 3, 2: 4, 3: 5, 4: 6, 5: 7, 6: 1 }[beg.weekday()]
+    minute_invert = (end_minute - beg.minute < 0)
+    hour_invert = ((end_hour - beg.hour < 0) or (end_hour == beg.hour and minute_invert))
+    day_invert = ((end_dow - beg_dow < 0) or (end_dow == beg_dow and hour_invert))
+    days = ((end_dow + 7) if day_invert else end_dow) - beg_dow - (1 if hour_invert else 0)
+    hours = ((end_hour + 24) if hour_invert else end_hour) - beg.hour - (1 if minute_invert else 0)
+    minutes = ((end_minute + 60) if minute_invert else end_minute) - beg.minute
+    return 1440*days + 60*hours + minutes
+
+def bump_expiry(label, override=()):
+    label = sanitize(label)
+    region = get_region()
+    iamc = boto3.client('iam', region_name=region)
+    lambdac = boto3.client('lambda', region_name=region)
+    eventsc = boto3.client('events', region_name=region)
+
+    now = datetime.datetime.utcnow()
+    dow = { 0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 0 }[now.weekday()]
+    expire_dow = ((dow + 2) % 7)
+    cron_expire_dow = expire_dow + 1
+    schedule_expr = 'cron({} {} ? * {} *)'.format(
+        *(chain(override) if override else chain((now.minute, now.hour, cron_expire_dow))))
+    rule = eventsc.describe_rule(Name=label)
+    diff = abs(minutes_to(rule['ScheduleExpression']) - minutes_to(schedule_expr))
+    if diff < 180:
+        print('De minimus {} minutes'.format(diff))
+        return
+
+    delete_iterations = 3
+    for j in range(delete_iterations):
+        try:
+            lambdac.remove_permission(
+                FunctionName=label,
+                StatementId=label,
+            )
+        except lambdac.exceptions.ResourceNotFoundException:
+            break
+        except lambdac.exceptions.TooManyRequestsException as e:
+            if j >= delete_iterations - 1 :
+                raise e
+            else:
+                pass
+        sleep(5)
+    for j in range(delete_iterations):
+        try:
+            eventsc.delete_rule(Name=label)
+        except eventsc.exceptions.ResourceNotFoundException:
+            break
+        except eventsc.exceptions.ConcurrentModificationException as e:
+            if j >= delete_iterations - 1 :
+                raise e
+            else:
+                pass
+        sleep(5)
+
+    role = iamc.get_role(RoleName=label)
+    eventsc.put_rule(
+        Name=label,
+        RoleArn=role['Role']['Arn'],
+        ScheduleExpression=schedule_expr,
+        State='ENABLED',
+    )
+    rule = eventsc.describe_rule(Name=label)
+    lambdac.add_permission(
+        FunctionName=label,
+        StatementId=label,
+        Action="lambda:InvokeFunction",
+        Principal="events.amazonaws.com",
+        SourceArn=rule['Arn'],
+    )
+
 def efs_populate(dir, competition=None, dataset=None, recreate=None):
     Path(dir).mkdir(parents=True, exist_ok=True)
     instance_id = get_instanceid()
@@ -348,6 +426,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None):
                 efs = None
         if efs:
             fs_id = efs['FileSystemId']
+            bump_expiry(label)
         else:
             setup_expiry(label)
             fs_response = efs_client.create_file_system(
