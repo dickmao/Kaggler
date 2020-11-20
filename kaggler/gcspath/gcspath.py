@@ -540,9 +540,9 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None, override=()
                 for f in Path(dir).glob('**/*'):
                     if f.is_file():
                         du += f.stat().st_size
-                    if du > 2**30:
+                    if du > 2**10:
                         break
-                if du <= 2**30:
+                if du <= 2**10:
                     url = gcspath(competition=competition, dataset=dataset)
                     if not url:
                         error('Could not find bucket for {}'.format(label))
