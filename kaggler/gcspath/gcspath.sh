@@ -72,8 +72,8 @@ if ! kaggle k push -p . | tee ./push.out | grep -q "success" ; then
     cat ./push.out
 else
     fail=""
-    for f in {1..120} ; do
-        if [ $f = "120" ]; then
+    for f in {1..90} ; do
+        if [ $f = "90" ]; then
             echo Timed out
             fail="1"
             break
@@ -87,7 +87,7 @@ else
             break
         fi
         echo $STATUS | grep -o "status .*"
-        sleep 1
+        sleep 2
     done
     if [ -z "$fail" ] && kaggle k output -q "${USER}/gcspath" ; then
         cat gcspath.log | grep -o "gs:[/a-z0-9-]*"
