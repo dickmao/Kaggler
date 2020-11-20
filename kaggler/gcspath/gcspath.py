@@ -531,10 +531,7 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None, override=()
             sleep(15)
 
         if target:
-            url = gcspath(competition=competition, dataset=dataset)
-            if not url:
-                error('Could not find bucket for {}'.format(label))
-            elif not mount_retry(dir, region, fs_id, target['IpAddress']):
+            if not mount_retry(dir, region, fs_id, target['IpAddress']):
                 error("Cannot mount {} to {}".format(fs_id, dir))
             elif 0 != os.system("sudo chmod go+rw {}".format(dir)):
                 error("Cannot chmod {} for write".format(dir))
@@ -546,7 +543,11 @@ def efs_populate(dir, competition=None, dataset=None, recreate=None, override=()
                     if du > 2**30:
                         break
                 if du <= 2**30:
-                    gsutil_rsync_retry(dir, url)
+                    url = gcspath(competition=competition, dataset=dataset)
+                    if not url:
+                        error('Could not find bucket for {}'.format(label))
+                    else:
+                        gsutil_rsync_retry(dir, url)
         else:
             error('Could not create mount target')
 
