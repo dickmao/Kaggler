@@ -8,4 +8,6 @@ matplotlib
 kaggle @ git+https://github.com/dickmao/kaggle-api.git@slugify#egg=kaggle
 xgboost
 boto3
+google-api-python-client
+google-auth
 gsutil
