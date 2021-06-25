@@ -1,6 +1,6 @@
 import kaggler
 import platform
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 
 
 try:
@@ -54,14 +54,7 @@ setup(
     author='Jeong-Yoon Lee',
     author_email='jeongyoon.lee1@gmail.com',
     python_requires=">=3.6",
-    packages=['kaggler',
-              'kaggler.feature_selection',
-              'kaggler.ensemble',
-              'kaggler.gcspath',
-              'kaggler.model',
-              'kaggler.metrics',
-              'kaggler.online_model',
-              'kaggler.preprocessing'],
+    packages=find_packages(),
     package_data={
         "kaggler.gcspath": ["gcspath.sh", "fusermount.sh"],
     },
