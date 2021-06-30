@@ -1,17 +1,6 @@
 # -*- coding: utf-8 -*-
 # pylint: disable=wrong-import-position
 
-# testing:
-# project = 'api-project-421333809285'
-# competition = 'seti-breakthrough-listen'
-# label = competition
-# service_account_json = os.path.join(os.path.expanduser("~"), ".config/gcloud/gat-service-account.json")
-# os.environ["KAGGLE_USERNAME"] = "dicksbu"
-# os.environ["KAGGLE_KEY"] = ""
-# from kaggler.gcspath import *
-# dir = 'mnt'
-# url = 'gs://kds-94ae5957f2e2a27e2db7363a1e29443961556e8f41a50a7d1420d914'
-
 import os
 from pathlib import Path
 from urllib.request import urlopen, Request
@@ -143,7 +132,7 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
         if not url:
             error("Could not find bucket for {}".format(label))
             raise
-        sz = url_size(url)
+        sz = url_size(url, base10=True)
         if not sz:
             error("Could not size bucket for {}".format(label))
             raise

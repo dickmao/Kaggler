@@ -88,7 +88,7 @@ def gcspath(competition=None, dataset=None):
         print(result.stdout.decode())
     return ret
 
-def url_size(url):
+def url_size(url, base10=False):
     '''In GiB.'''
     with Restorer(['gsutil', 'du', '-s', url]):
         stdout = io.StringIO()
@@ -102,7 +102,7 @@ def url_size(url):
             error("Could not ascertain bucket size of {}".format(url))
             return None
         else:
-            return math.ceil(float(sz)/(2 << 29))
+            return math.ceil(float(sz)/((10 ** 9) if base10 else (2 << 29)))
 
 def disk_ensure_format(device):
     for _ in range(5):
