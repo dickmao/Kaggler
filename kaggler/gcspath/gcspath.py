@@ -109,7 +109,7 @@ def disk_ensure_format(device):
         if Path(device).is_block_device():
             break
         sleep(3)
-    if Path(device).is_block_device():
+    if not Path(device).is_block_device():
         error("Did not see device {}".format(device))
         return None
     fstype = subprocess.run(shlex.split('sudo blkid -s TYPE -o value {}'.format(device)), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -127,8 +127,6 @@ def disk_ensure_format(device):
     elif 0 != os.system("sudo chmod 777 {}".format(dir)):
         error("Cannot chmod {} for write".format(dir))
         raise
-
-
 
 def disk_ensure_data(dir, url):
     du = 0

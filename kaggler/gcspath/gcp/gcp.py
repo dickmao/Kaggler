@@ -5,6 +5,12 @@
 # project = 'api-project-421333809285'
 # competition = 'seti-breakthrough-listen'
 # label = competition
+# service_account_json = os.path.join(os.path.expanduser("~"), ".config/gcloud/gat-service-account.json")
+# os.environ["KAGGLE_USERNAME"] = "dicksbu"
+# os.environ["KAGGLE_KEY"] = ""
+# from kaggler.gcspath import *
+# dir = 'mnt'
+# url = 'gs://kds-94ae5957f2e2a27e2db7363a1e29443961556e8f41a50a7d1420d914'
 
 import os
 from pathlib import Path
@@ -104,10 +110,11 @@ def wait_op(compute, project, zone, req):
             break
         sleep(1)
 
-def disk_populate(dir, competition=None, dataset=None, recreate=None, override=()):
+def disk_populate(dir, competition=None, dataset=None, recreate=None, service_account_json=None, override=()):
     Path(dir).mkdir(parents=True, exist_ok=True)
-    credentials = authenticate(os.path.join(os.path.expanduser("~"),
-                                            ".config/gcloud/gat-service-account.json"))
+    credentials = None
+    if service_account_json:
+        credentials = authenticate(service_account_json)
     service = discovery.build('serviceusage', 'v1', credentials=credentials)
     project = get_project()
     if service.services().get(
@@ -149,7 +156,7 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, override=(
                         "description": "kaggler-gcp",
                         "sizeGb": sz,
                     }))
-        disk = disk_get(project, zone, label)
+        disk = disk_get(compute, project, zone, label)
     if not disk:
         error("Could not create disk {}".format(label))
         return None
