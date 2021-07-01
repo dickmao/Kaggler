@@ -186,7 +186,7 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
                     'source': disk['selfLink'],
                     'mode': "READ_ONLY",
                 }))
-    disk_ensure_format(device)
+    disk_ensure_format(device, dir)
 
 def filestore_populate(dir, competition=None, dataset=None, recreate=None, override=()):
     Path(dir).mkdir(parents=True, exist_ok=True)

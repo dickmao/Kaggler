@@ -104,7 +104,7 @@ def url_size(url, base10=False):
         else:
             return math.ceil(float(sz)/((10 ** 9) if base10 else (2 << 29)))
 
-def disk_ensure_format(device):
+def disk_ensure_format(device, dir):
     for _ in range(5):
         if Path(device).is_block_device():
             break
