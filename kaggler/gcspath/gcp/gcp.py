@@ -7,7 +7,7 @@ from urllib.request import urlopen, Request
 from googleapiclient import discovery
 from googleapiclient.errors import HttpError
 from time import sleep
-from ..gcspath import gcspath, download, sanitize, authenticate, url_size, error, \
+from ..gcspath import gcspath, sanitize, authenticate, url_size, error, \
     disk_ensure_format, disk_ensure_data
 
 def get_project():
@@ -83,7 +83,7 @@ def setup_expiry(label, parent, credentials, override=()):
         },
     ).execute()
     while True:
-        result = file.projects().locations().operations().get(
+        result = service.operations().get(
             name=op['name'],
         ).execute()
         if result['done']:
@@ -106,7 +106,7 @@ def disk_get(compute, project, zone, name):
         raise e
     return next(filter(lambda item: item['name'] == name, disks['items']), None)
 
-def wait_op(compute, project, zone, req):
+def wait_op(compute, project, zone, req, allowed=[]):
     op = req.execute()
     while True:
         result = compute.zoneOperations().get(
@@ -115,7 +115,8 @@ def wait_op(compute, project, zone, req):
             operation=op['name'],
         ).execute()
         if result['status'] == 'DONE':
-            if 'error' in result:
+            if 'error' in result and \
+               any([code for code in list(map(lambda d: d.get("code"), result['error']['errors'])) if code not in allowed]):
                 raise Exception(result['error'])
             break
         sleep(1)
@@ -126,10 +127,11 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
     if service_account_json:
         credentials = authenticate(service_account_json)
     label = sanitize(competition or dataset)
+    project = get_project()
+    zone = get_zone()
     parent = 'projects/%s/locations/%s' % (project, zone)
     setup_expiry(label, parent, credentials)
     service = discovery.build('serviceusage', 'v1', credentials=credentials)
-    project = get_project()
     if service.services().get(
             name='projects/{}/services/compute.googleapis.com'.format(project),
     ).execute().get('state') == 'DISABLED':
@@ -146,7 +148,6 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
                 break
             sleep(1)
     compute = discovery.build('compute', 'v1', credentials=credentials, cache_discovery=False)
-    zone = get_zone()
     disk = disk_get(compute, project, zone, label)
     if not disk:
         recreate = True
@@ -180,7 +181,8 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
                     instance=get_instance_name(),
                     body={
                         'source': disk['selfLink']
-                    }))
+                    }),
+                ['RESOURCE_IN_USE_BY_ANOTHER_RESOURCE'])
         disk_ensure_format(device)
         disk_ensure_data(dir, url)
 
@@ -208,4 +210,4 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
                     'source': disk['selfLink'],
                     'mode': "READ_ONLY",
                 }))
-    disk_ensure_format(device, dir)
+    disk_ensure_format(device, dir, True)

@@ -104,7 +104,7 @@ def url_size(url, base10=False):
         else:
             return math.ceil(float(sz)/((10 ** 9) if base10 else (2 << 29)))
 
-def disk_ensure_format(device, dir):
+def disk_ensure_format(device, dir, read_only=False):
     for _ in range(5):
         if Path(device).is_block_device():
             break
@@ -124,7 +124,7 @@ def disk_ensure_format(device, dir):
     if 0 != os.system("sudo bash -c 'grep -wqs {} /proc/mounts || mount -o rw,user {} {}'".format(device, device, dir)):
         error("Cannot mount {} to {}".format(device, dir))
         raise
-    elif 0 != os.system("sudo chmod 777 {}".format(dir)):
+    elif !read_only and 0 != os.system("sudo chmod 777 {}".format(dir)):
         error("Cannot chmod {} for write".format(dir))
         raise
 
