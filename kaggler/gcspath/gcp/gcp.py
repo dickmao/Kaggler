@@ -66,11 +66,32 @@ def get_zone():
         pass
     return None
 
-def mount_retry(dir, region, fs_id, fs_ip):
-    pass
-
-def setup_expiry(label, override=()):
+def setup_expiry(label, parent, credentials, override=()):
     label = sanitize(label)
+    service = discovery.build('cloudfunctions', 'v1', credentials=credentials)
+    op = service.projects().locations().functions().create(
+        location=parent,
+        body={
+            'fileShares': [{
+                'capacityGb': 1024,
+                'name': 'test'
+            }],
+            'networks': [{
+                'network': 'default'
+            }],
+            'tier': 'STANDARD',
+        },
+    ).execute()
+    while True:
+        result = file.projects().locations().operations().get(
+            name=op['name'],
+        ).execute()
+        if result['done']:
+            if 'error' in result:
+                raise Exception(result['error'])
+            break
+        sleep(1)
+
 
 def bump_expiry(label, override=()):
     pass
@@ -104,6 +125,9 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
     credentials = None
     if service_account_json:
         credentials = authenticate(service_account_json)
+    label = sanitize(competition or dataset)
+    parent = 'projects/%s/locations/%s' % (project, zone)
+    setup_expiry(label, parent, credentials)
     service = discovery.build('serviceusage', 'v1', credentials=credentials)
     project = get_project()
     if service.services().get(
@@ -122,8 +146,6 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
                 break
             sleep(1)
     compute = discovery.build('compute', 'v1', credentials=credentials, cache_discovery=False)
-    label = sanitize(competition or dataset)
-
     zone = get_zone()
     disk = disk_get(compute, project, zone, label)
     if not disk:
@@ -250,4 +272,4 @@ def filestore_populate(dir, competition=None, dataset=None, recreate=None, overr
                         raise Exception(result['error'])
                     break
                 sleep(1)
-            setup_expiry(label)
+            setup_expiry(label, parent, None)
