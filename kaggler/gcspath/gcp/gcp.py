@@ -72,11 +72,9 @@ def setup_expiry(label, parent, credentials, override=()):
     op = service.projects().locations().functions().create(
         location=parent,
         body={
-            'fileShares': [{
-                'capacityGb': 1024,
-                'name': 'test'
-            }],
-            'networks': [{
+            'name': parent + "/functions/" + label,
+            'entryPoint': 'expire',
+            'runtime': [{
                 'network': 'default'
             }],
             'tier': 'STANDARD',
@@ -129,7 +127,7 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
     label = sanitize(competition or dataset)
     project = get_project()
     zone = get_zone()
-    parent = 'projects/%s/locations/%s' % (project, zone)
+    parent = 'projects/{}/locations/{}'.format(project, zone)
     setup_expiry(label, parent, credentials)
     service = discovery.build('serviceusage', 'v1', credentials=credentials)
     if service.services().get(

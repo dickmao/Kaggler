@@ -124,7 +124,7 @@ def disk_ensure_format(device, dir, read_only=False):
     if 0 != os.system("sudo bash -c 'grep -wqs {} /proc/mounts || mount -o rw,user {} {}'".format(device, device, dir)):
         error("Cannot mount {} to {}".format(device, dir))
         raise
-    elif !read_only and 0 != os.system("sudo chmod 777 {}".format(dir)):
+    elif not read_only and 0 != os.system("sudo chmod 777 {}".format(dir)):
         error("Cannot chmod {} for write".format(dir))
         raise
 
