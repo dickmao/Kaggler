@@ -128,7 +128,7 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
     project = get_project()
     zone = get_zone()
     parent = 'projects/{}/locations/{}'.format(project, zone)
-    setup_expiry(label, parent, credentials)
+    # setup_expiry(label, parent, credentials)
     service = discovery.build('serviceusage', 'v1', credentials=credentials)
     if service.services().get(
             name='projects/{}/services/compute.googleapis.com'.format(project),
