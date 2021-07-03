@@ -613,7 +613,9 @@ def ebs_volume(dir, competition=None, dataset=None, recreate=None):
             error("Cannot attach {} to {}".format(volume.id, instance_id))
             return None
 
-        disk_ensure_format(device, dir)
+        if not disk_ensure_format(device, dir):
+            error("Cannot ensure format for {}".format(device))
+            return None
         disk_ensure_data(dir, url)
 
         # create snapshot if not there

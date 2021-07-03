@@ -111,7 +111,7 @@ def disk_ensure_format(device, dir, read_only=False):
         sleep(3)
     if not Path(device).is_block_device():
         error("Did not see device {}".format(device))
-        return None
+        return False
     fstype = subprocess.run(shlex.split('sudo blkid -s TYPE -o value {}'.format(device)), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         fstype.check_returncode()
@@ -120,13 +120,14 @@ def disk_ensure_format(device, dir, read_only=False):
         fstype = None
         if 0 != os.system("sudo mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard {}".format(device)):
             error("Cannot mkfs.ext4 {}".format(device))
-            raise
+            return False
     if 0 != os.system("sudo bash -c 'grep -wqs {} /proc/mounts || mount -o rw,user {} {}'".format(device, device, dir)):
         error("Cannot mount {} to {}".format(device, dir))
-        raise
+        return False
     elif not read_only and 0 != os.system("sudo chmod 777 {}".format(dir)):
         error("Cannot chmod {} for write".format(dir))
-        raise
+        return False
+    return True
 
 def disk_ensure_data(dir, url):
     du = 0

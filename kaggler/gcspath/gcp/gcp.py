@@ -2,6 +2,9 @@
 # pylint: disable=wrong-import-position
 
 import os
+import json
+import subprocess
+import shlex
 from pathlib import Path
 from urllib.request import urlopen, Request
 from googleapiclient import discovery
@@ -73,11 +76,10 @@ def setup_expiry(label, parent, credentials, override=()):
         location=parent,
         body={
             'name': parent + "/functions/" + label,
-            'entryPoint': 'expire',
-            'runtime': [{
-                'network': 'default'
-            }],
-            'tier': 'STANDARD',
+            'runtime': 'go113',
+            'timeout': '120s',
+            'trigger': {},
+            'sourceArchiveUrl': '',
         },
     ).execute()
     while True:
@@ -119,6 +121,12 @@ def wait_op(compute, project, zone, req, allowed=[]):
             break
         sleep(1)
 
+def get_device():
+    lsblk = subprocess.run(shlex.split('lsblk -Jlpo NAME,TYPE'), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    lsblk.check_returncode()
+    lsblk = json.loads(lsblk.stdout.decode('utf-8').rstrip())
+    return next(iter([x['name'] for x in reversed(lsblk['blockdevices']) if x['type'] == 'disk']))
+
 def disk_populate(dir, competition=None, dataset=None, recreate=None, service_account_json=None, override=()):
     Path(dir).mkdir(parents=True, exist_ok=True)
     credentials = None
@@ -127,7 +135,7 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
     label = sanitize(competition or dataset)
     project = get_project()
     zone = get_zone()
-    parent = 'projects/{}/locations/{}'.format(project, zone)
+    # parent = 'projects/{}/locations/{}'.format(project, zone)
     # setup_expiry(label, parent, credentials)
     service = discovery.build('serviceusage', 'v1', credentials=credentials)
     if service.services().get(
@@ -147,6 +155,7 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
             sleep(1)
     compute = discovery.build('compute', 'v1', credentials=credentials, cache_discovery=False)
     disk = disk_get(compute, project, zone, label)
+    url = None
     if not disk:
         recreate = True
         url = gcspath(competition=competition, dataset=dataset)
@@ -170,27 +179,37 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
     if not disk:
         error("Could not create disk {}".format(label))
         return None
-    device = '/dev/sdb'
     if recreate:
+        attached = get_attached_device(compute, project, zone, label)
+        if attached:
+            wait_op(compute, project, zone,
+                    compute.instances().detachDisk(
+                        project=project,
+                        zone=zone,
+                        instance=get_instance_name(),
+                        deviceName=attached['deviceName'],
+                    ))
         wait_op(compute, project, zone,
                 compute.instances().attachDisk(
                     project=project,
                     zone=zone,
                     instance=get_instance_name(),
                     body={
-                        'source': disk['selfLink']
+                        'source': disk['selfLink'],
+                        'mode': "READ_WRITE",
                     }),
                 ['RESOURCE_IN_USE_BY_ANOTHER_RESOURCE'])
-        disk_ensure_format(device)
+        device = get_device()
+        if not disk_ensure_format(device, dir):
+            error("Cannot ensure format for {}".format(device))
+            return None
+        if not url:
+            url = gcspath(competition=competition, dataset=dataset)
         disk_ensure_data(dir, url)
-
-        info = compute.instances().get(project=project, zone=zone,
-                                       instance='instance-1').execute()
-        attached = next(filter(lambda disk: os.path.basename(disk['source']) == label,
-                               info["disks"]), None)
+        attached = get_attached_device(compute, project, zone, label)
         if not attached:
             error("Could not determine deviceName for {}".format(label))
-            raise
+            raise Exception
         else:
             wait_op(compute, project, zone,
                     compute.instances().detachDisk(
@@ -208,4 +227,11 @@ def disk_populate(dir, competition=None, dataset=None, recreate=None, service_ac
                     'source': disk['selfLink'],
                     'mode': "READ_ONLY",
                 }))
-    disk_ensure_format(device, dir, True)
+    disk_ensure_format(get_device(), dir, True)
+
+def get_attached_device(compute, project, zone, label):
+    info = compute.instances().get(project=project, zone=zone,
+                                   instance=get_instance_name()).execute()
+    attached = next(filter(lambda disk: os.path.basename(disk['source']) == label,
+                           info["disks"]), None)
+    return attached
